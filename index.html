@@ -308,10 +308,29 @@
 
   /* ── Footer ── */
   .footer {
-    text-align: center;
     margin-top: 48px;
     color: var(--text-dim);
     font-size: 0.75rem;
+  }
+  .license-box {
+    background: rgba(255,255,255,0.72);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    text-align: left;
+    line-height: 1.65;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.03);
+  }
+  .license-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .license-box p + p {
+    margin-top: 8px;
   }
   .footer a {
     color: var(--pink);
@@ -370,6 +389,14 @@
   <div class="examples">
     <div class="examples-title">Examples</div>
     <div class="example-chips" id="example-chips"></div>
+  </div>
+
+  <div class="footer">
+    <div class="license-box">
+      <div class="license-title">Licenses & Credits</div>
+      <p>본 제품은 한글과컴퓨터의 한글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다. 관련 문서는 <a href="https://cdn.hancom.com/link/docs/%ED%95%9C%EA%B8%80%EB%AC%B8%EC%84%9C%ED%8C%8C%EC%9D%BC%ED%98%95%EC%8B%9D_%EC%88%98%EC%8B%9D_revision1.3.pdf" target="_blank" rel="noopener noreferrer">한글 문서 파일 형식 - 수식</a>에서 확인할 수 있습니다.</p>
+      <p>수식 렌더링은 <a href="https://katex.org/" target="_blank" rel="noopener noreferrer">KaTeX</a>를 사용하며, KaTeX는 <a href="https://github.com/KaTeX/KaTeX/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>로 배포됩니다.</p>
+    </div>
   </div>
 
 </div>
@@ -598,485 +625,1582 @@ const TokenType = { KEYWORD: 0, IDENT: 1, NUMBER: 2, SYMBOL: 3, SPACE: 4, EOF: 5
 
 function isAlpha(ch) { return /^[A-Za-z]$/.test(ch); }
 function isDigit(ch) { return /^[0-9]$/.test(ch); }
+function isOpenDelimiter(ch) { return "([{|".includes(ch); }
+function isCloseDelimiter(ch) { return ")]}|".includes(ch); }
+function matchingDelimiter(ch) {
+  return { "(": ")", "[": "]", "{": "}", "|": "|" }[ch] || "";
+}
 
-// ── HWP Tokenizer ──
 const HWP_KEYWORDS = new Set([
-  "TIMES","OVER","ATOP","SQRT","INT","OINT","SUM",
+  "TIMES","OVER","ATOP","SQRT","INT","OINT","SUM","PROD","LIM",
+  "UNION","INTER","SMALLUNION","SMALLINTER",
   "ACUTE","GRAVE","DOT","DDOT","BAR","VEC","DYAD","UNDER",
-  "HAT","ARCH","CHECK","TILDE","LEFT","RIGHT","PMATRIX","CASES"
+  "HAT","ARCH","CHECK","TILDE","LEFT","RIGHT",
+  "MATRIX","PMATRIX","BMATRIX","DMATRIX","CASES",
+  "PILE","LPILE","RPILE","EQALIGN",
+  "CHOOSE","BINOM","NOT","REL","BUILDREL","BIGG","COL","LCOL","RCOL",
+  "RM","IT","BOLD","RMBOLD"
 ]);
+
+const LATEX_KEYWORDS = new Set([
+  "int","oint","sum","prod","sqrt","frac","over","atop","choose","binom","lim",
+  "acute","grave","dot","ddot","bar","vec","hat","tilde","check",
+  "widehat","widetilde","overparen","underline","overline","overrightarrow","overleftrightarrow",
+  "times","left","right","begin","end","not","bigg","biggl","biggr","biggm",
+  "overset","underset","text","mathrm","mathit","mathbf","boldsymbol","operatorname"
+]);
+
+const HWP_LITERAL_TO_LATEX = {
+  LIM: "\\lim", lim: "\\lim", Lim: "\\lim",
+  PROD: "\\prod", prod: "\\prod",
+  UNION: "\\bigcup", SMALLUNION: "\\cup",
+  INTER: "\\bigcap", SMALLINTER: "\\cap",
+  NOT: "\\not", not: "\\not",
+  BIGG: "\\bigg", bigg: "\\bigg",
+  inf: "\\infty", infinity: "\\infty",
+  cdot: "\\cdot", cdots: "\\cdots", "...": "\\ldots",
+  alpha: "\\alpha", beta: "\\beta", gamma: "\\gamma", delta: "\\delta",
+  epsilon: "\\epsilon", zeta: "\\zeta", eta: "\\eta", theta: "\\theta",
+  lambda: "\\lambda", mu: "\\mu", pi: "\\pi", sigma: "\\sigma",
+  phi: "\\phi", omega: "\\omega",
+  to: "\\to", rightarrow: "\\rightarrow", leftarrow: "\\leftarrow", leftrightarrow: "\\leftrightarrow",
+  "->": "\\to", "<-": "\\leftarrow", "<->": "\\leftrightarrow",
+  "<=": "\\leq", ">=": "\\geq", "<>": "\\neq", "=>": "\\Rightarrow"
+};
+
+const LATEX_LITERAL_TO_HWP = {
+  to: "->", rightarrow: "->", leftarrow: "<-", leftrightarrow: "<->",
+  Rightarrow: "=>", Leftarrow: "<=",
+  infty: "inf", infinity: "inf",
+  leq: "<=", le: "<=", geq: ">=", ge: ">=", neq: "<>", ne: "<>",
+  bigcup: "UNION", cup: "SMALLUNION", bigcap: "INTER", cap: "SMALLINTER",
+  prod: "PROD", lim: "lim", bigg: "bigg",
+  overparen: "arch", underline: "under", overline: "bar",
+  overrightarrow: "vec", overleftrightarrow: "dyad",
+  widehat: "hat", widetilde: "tilde", check: "check",
+  cdot: "cdot", cdots: "cdots", ldots: "...", dots: "...",
+  pm: "+-", mp: "-+",
+  alpha: "alpha", beta: "beta", gamma: "gamma", delta: "delta",
+  epsilon: "epsilon", zeta: "zeta", eta: "eta", theta: "theta",
+  lambda: "lambda", mu: "mu", pi: "pi", sigma: "sigma",
+  phi: "phi", omega: "omega",
+  Alpha: "ALPHA", Beta: "BETA", Gamma: "GAMMA", Delta: "DELTA",
+  Theta: "THETA", Lambda: "LAMBDA", Pi: "PI", Sigma: "SIGMA",
+  Phi: "PHI", Omega: "OMEGA"
+};
+
+const BINARY_OP_TO_LATEX = {
+  times: "\\times",
+  "->": "\\to",
+  "<-": "\\leftarrow",
+  "<->": "\\leftrightarrow",
+  "=>": "\\Rightarrow",
+  "<=": "\\leq",
+  ">=": "\\geq",
+  "<>": "\\neq"
+};
+
+const RELATION_OPERATORS = new Set(["=", "<", ">", "<=", ">=", "<>", "->", "<-", "<->", "=>"]);
+
+const DECORATION_TO_LATEX = {
+  acute: "\\acute",
+  grave: "\\grave",
+  dot: "\\dot",
+  ddot: "\\ddot",
+  bar: "\\bar",
+  vec: "\\vec",
+  dyad: "\\overleftrightarrow",
+  under: "\\underline",
+  hat: "\\hat",
+  arch: "\\overparen",
+  check: "\\check",
+  tilde: "\\tilde"
+};
+
+const LATEX_DECORATION_TO_HWP = {
+  acute: "acute",
+  grave: "grave",
+  dot: "dot",
+  ddot: "ddot",
+  bar: "bar",
+  overline: "bar",
+  vec: "vec",
+  overrightarrow: "vec",
+  dyad: "dyad",
+  overleftrightarrow: "dyad",
+  under: "under",
+  underline: "under",
+  hat: "hat",
+  widehat: "hat",
+  arch: "arch",
+  overparen: "arch",
+  check: "check",
+  tilde: "tilde",
+  widetilde: "tilde"
+};
+
+const BASIC_FUNCTIONS = new Set([
+  "sin","cos","coth","log","tan","cot","lg","sec","cosec",
+  "max","min","csc","arcsin","arccos","arctan",
+  "exp","Exp","det","gcd","cosh","tanh","mod",
+  "if","for","and","hom","ker","deg","arg","dim","Pr","or"
+]);
+
+const STYLE_TO_LATEX = {
+  rm: "\\mathrm",
+  it: "\\mathit",
+  bold: "\\boldsymbol",
+  rmbold: "\\mathbf"
+};
+
+const LATEX_STYLE_TO_HWP = {
+  mathrm: "rm",
+  mathit: "it",
+  boldsymbol: "bold",
+  mathbf: "rmbold"
+};
 
 function tokenizeHwpEqn(input) {
   const tokens = [];
   let i = 0;
   while (i < input.length) {
     const ch = input[i];
-    if (/\s/.test(ch)) { tokens.push({type:TokenType.SPACE,value:ch}); i++; continue; }
+    if (/\s/.test(ch)) { tokens.push({ type: TokenType.SPACE, value: ch }); i++; continue; }
     if (isDigit(ch)) {
-      let num=ch; i++;
-      while(i<input.length&&isDigit(input[i])){num+=input[i];i++;}
-      if(i<input.length&&input[i]==='.'&&i+1<input.length&&isDigit(input[i+1])){
-        num+=input[i];i++;
-        while(i<input.length&&isDigit(input[i])){num+=input[i];i++;}
+      let num = ch;
+      i++;
+      while (i < input.length && isDigit(input[i])) { num += input[i]; i++; }
+      if (i < input.length && input[i] === "." && i + 1 < input.length && isDigit(input[i + 1])) {
+        num += input[i];
+        i++;
+        while (i < input.length && isDigit(input[i])) { num += input[i]; i++; }
       }
-      tokens.push({type:TokenType.NUMBER,value:num}); continue;
-    }
-    if ("^_{}()#&~'/,.-+=*\\[]".includes(ch)) {
-      if (ch==='\\' && i+1<input.length && input[i+1]==='\\') { tokens.push({type:TokenType.SYMBOL,value:"\\\\"}); i+=2; continue; }
-      tokens.push({type:TokenType.SYMBOL,value:ch}); i++; continue;
-    }
-    if (isAlpha(ch)) {
-      let ident=ch; i++; while(i<input.length&&isAlpha(input[i])){ident+=input[i];i++;}
-      const up=ident.toUpperCase();
-      if (HWP_KEYWORDS.has(up)) tokens.push({type:TokenType.KEYWORD,value:up});
-      else tokens.push({type:TokenType.IDENT,value:ident});
+      tokens.push({ type: TokenType.NUMBER, value: num });
       continue;
     }
-    tokens.push({type:TokenType.UNKNOWN,value:ch}); i++;
+    if ("^_{}()#&~'/,.-+=*\\[]<>|\"".includes(ch)) {
+      if (ch === "\\" && i + 1 < input.length && input[i + 1] === "\\") {
+        tokens.push({ type: TokenType.SYMBOL, value: "\\\\" });
+        i += 2;
+        continue;
+      }
+      tokens.push({ type: TokenType.SYMBOL, value: ch });
+      i++;
+      continue;
+    }
+    if (isAlpha(ch)) {
+      let ident = ch;
+      i++;
+      while (i < input.length && isAlpha(input[i])) { ident += input[i]; i++; }
+      const up = ident.toUpperCase();
+      if (HWP_KEYWORDS.has(up)) tokens.push({ type: TokenType.KEYWORD, value: up });
+      else tokens.push({ type: TokenType.IDENT, value: ident });
+      continue;
+    }
+    tokens.push({ type: TokenType.UNKNOWN, value: ch });
+    i++;
   }
-  tokens.push({type:TokenType.EOF,value:""}); return tokens;
+  tokens.push({ type: TokenType.EOF, value: "" });
+  return tokens;
 }
-
-// ── LaTeX Tokenizer ──
-const LATEX_KEYWORDS = new Set(["int","oint","sum","sqrt","frac","acute","grave","dot","ddot","bar","vec","hat","tilde","times","left","right","begin","end"]);
 
 function tokenizeLatex(input) {
   const tokens = [];
   let i = 0;
   while (i < input.length) {
     const ch = input[i];
-    if (/\s/.test(ch)) { tokens.push({type:TokenType.SPACE,value:ch}); i++; continue; }
+    if (/\s/.test(ch)) { tokens.push({ type: TokenType.SPACE, value: ch }); i++; continue; }
     if (isDigit(ch)) {
-      let num=ch; i++;
-      while(i<input.length&&isDigit(input[i])){num+=input[i];i++;}
-      if(i<input.length&&input[i]==='.'&&i+1<input.length&&isDigit(input[i+1])){
-        num+=input[i];i++;
-        while(i<input.length&&isDigit(input[i])){num+=input[i];i++;}
+      let num = ch;
+      i++;
+      while (i < input.length && isDigit(input[i])) { num += input[i]; i++; }
+      if (i < input.length && input[i] === "." && i + 1 < input.length && isDigit(input[i + 1])) {
+        num += input[i];
+        i++;
+        while (i < input.length && isDigit(input[i])) { num += input[i]; i++; }
       }
-      tokens.push({type:TokenType.NUMBER,value:num}); continue;
-    }
-    if ("^_{}()#&~'/,.-+*=|[]\\".includes(ch)) {
-      if (ch==='\\'&&i+1<input.length&&input[i+1]==='\\') { tokens.push({type:TokenType.SYMBOL,value:"\\\\"}); i+=2; continue; }
-      if (ch==='\\') {
-        i++; let cmd="";
-        while(i<input.length&&/[A-Za-z]/.test(input[i])){cmd+=input[i];i++;}
-        const lower=cmd.toLowerCase();
-        if (cmd.length>0&&LATEX_KEYWORDS.has(lower)) tokens.push({type:TokenType.KEYWORD,value:lower});
-        else if(cmd.length>0) tokens.push({type:TokenType.IDENT,value:cmd});
-        else tokens.push({type:TokenType.SYMBOL,value:'\\'});
-      } else { tokens.push({type:TokenType.SYMBOL,value:ch}); i++; }
+      tokens.push({ type: TokenType.NUMBER, value: num });
       continue;
     }
-    if (isAlpha(ch)) { let ident=ch; i++; while(i<input.length&&isAlpha(input[i])){ident+=input[i];i++;} tokens.push({type:TokenType.IDENT,value:ident}); continue; }
-    tokens.push({type:TokenType.UNKNOWN,value:ch}); i++;
+    if ("^_{}()#&~'/,.-+*=|[]\\<>\"".includes(ch)) {
+      if (ch === "\\" && i + 1 < input.length && input[i + 1] === "\\") {
+        tokens.push({ type: TokenType.SYMBOL, value: "\\\\" });
+        i += 2;
+        continue;
+      }
+      if (ch === "\\") {
+        i++;
+        let cmd = "";
+        while (i < input.length && /[A-Za-z]/.test(input[i])) { cmd += input[i]; i++; }
+        const lower = cmd.toLowerCase();
+        if (cmd.length > 0 && LATEX_KEYWORDS.has(lower)) tokens.push({ type: TokenType.KEYWORD, value: lower });
+        else if (cmd.length > 0) tokens.push({ type: TokenType.IDENT, value: cmd });
+        else tokens.push({ type: TokenType.SYMBOL, value: "\\" });
+      } else {
+        tokens.push({ type: TokenType.SYMBOL, value: ch });
+        i++;
+      }
+      continue;
+    }
+    if (isAlpha(ch)) {
+      let ident = ch;
+      i++;
+      while (i < input.length && isAlpha(input[i])) { ident += input[i]; i++; }
+      tokens.push({ type: TokenType.IDENT, value: ident });
+      continue;
+    }
+    tokens.push({ type: TokenType.UNKNOWN, value: ch });
+    i++;
   }
-  tokens.push({type:TokenType.EOF,value:""}); return tokens;
+  tokens.push({ type: TokenType.EOF, value: "" });
+  return tokens;
 }
 
-// ── HWP Parser ──
+function parseTokenSlice(ParserClass, tokens) {
+  const filtered = tokens.filter(t => t.type !== TokenType.EOF);
+  if (filtered.length === 0) return { type: "Literal", value: "" };
+  return new ParserClass([...filtered, { type: TokenType.EOF, value: "" }]).parseExpression();
+}
+
+function normalizeLatexOperator(value) {
+  return LATEX_LITERAL_TO_HWP[value] || null;
+}
+
+function normalizeHwpOperator(value) {
+  if (RELATION_OPERATORS.has(value)) return value;
+  return HWP_LITERAL_TO_LATEX[value] ? (LATEX_LITERAL_TO_HWP[value] || value) : value;
+}
+
+function operatorToLatex(operator) {
+  return BINARY_OP_TO_LATEX[operator] || operator;
+}
+
+function literalToLatex(value) {
+  return HWP_LITERAL_TO_LATEX[value] || value;
+}
+
+function literalToHwp(value) {
+  return LATEX_LITERAL_TO_HWP[value] || value;
+}
+
+function isFunctionLikeValue(value) {
+  return BASIC_FUNCTIONS.has(value) || ["LIM", "lim", "Lim", "PROD", "prod"].includes(value);
+}
+
+function isFunctionLikeNode(node) {
+  if (!node) return false;
+  if (node.type === "FunctionName") return true;
+  if (node.type === "Literal") return isFunctionLikeValue(node.value);
+  if (node.type === "Subscript" || node.type === "Superscript") return isFunctionLikeNode(node.base);
+  return false;
+}
+
+function functionNameToLatex(name) {
+  return `\\${name}`;
+}
+
+function formatImplicitJoin(node, left, right) {
+  if (isFunctionLikeNode(node.left)) {
+    return node.right.type === "Bracket" ? `${left}${right}` : `${left} ${right}`;
+  }
+  return `${left}${right}`;
+}
+
+function wrapStyledChildForHwp(node) {
+  if (!node) return "";
+  const rendered = toHwpEqn(node);
+  if (["Literal", "FunctionName", "Text", "Bracket", "Styled", "Subscript", "Superscript"].includes(node.type)) return rendered;
+  return `{${rendered}}`;
+}
+
+function makeNameNode(value) {
+  return { type: BASIC_FUNCTIONS.has(value) ? "FunctionName" : "Literal", value };
+}
+
+function isHwpMatrixEnvName(envName) {
+  return ["matrix", "pmatrix", "bmatrix", "dmatrix"].includes(envName);
+}
+
+function hwpColumnKeywordToAlign(keyword) {
+  return keyword === "LCOL" ? "l" : keyword === "RCOL" ? "r" : "c";
+}
+
+function alignToHwpColumnKeyword(align) {
+  return align === "l" ? "lcol" : align === "r" ? "rcol" : "col";
+}
+
+function sanitizeArrayAlignSpec(alignSpec) {
+  const cleaned = (alignSpec || "").replace(/[^lcr]/g, "");
+  return cleaned || null;
+}
+
+function transposeHwpMatrixColumns(columns) {
+  const rowCount = columns.reduce((max, column) => Math.max(max, column.entries.length), 0);
+  const rows = [];
+  for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+    rows.push(columns.map(column => column.entries[rowIndex] || { type: "Literal", value: "" }));
+  }
+  return {
+    rows,
+    columnAlignSpec: columns.map(column => column.align).join("")
+  };
+}
+
+function splitHwpColumnEntries(tokens) {
+  const entries = [];
+  let current = [];
+  let depth = 0;
+
+  const pushEntry = () => {
+    entries.push(parseTokenSlice(HwpParser, current));
+    current = [];
+  };
+
+  for (const tk of tokens) {
+    if (tk.type === TokenType.EOF) break;
+    if (tk.type === TokenType.SYMBOL && isOpenDelimiter(tk.value)) {
+      depth++;
+      current.push(tk);
+      continue;
+    }
+    if (tk.type === TokenType.SYMBOL && isCloseDelimiter(tk.value)) {
+      depth = Math.max(0, depth - 1);
+      current.push(tk);
+      continue;
+    }
+    if (depth === 0 && tk.type === TokenType.SYMBOL && (tk.value === "#" || tk.value === "\\\\")) {
+      pushEntry();
+      continue;
+    }
+    current.push(tk);
+  }
+
+  if (current.length > 0 || entries.length === 0) pushEntry();
+  return entries;
+}
+
+function matrixDelimitersToLatex(envName) {
+  if (envName === "pmatrix") return { left: "\\left(", right: "\\right)" };
+  if (envName === "bmatrix") return { left: "\\left[", right: "\\right]" };
+  if (envName === "dmatrix") return { left: "\\left|", right: "\\right|" };
+  return { left: "", right: "" };
+}
+
+function bracketDelimitersToHwpMatrixEnv(leftDelim, rightDelim) {
+  if ((leftDelim === "\\left(" || leftDelim === "(") && (rightDelim === "\\right)" || rightDelim === ")")) return "pmatrix";
+  if ((leftDelim === "\\left[" || leftDelim === "[") && (rightDelim === "\\right]" || rightDelim === "]")) return "bmatrix";
+  if ((leftDelim === "\\left|" || leftDelim === "|") && (rightDelim === "\\right|" || rightDelim === "|")) return "dmatrix";
+  return "matrix";
+}
+
+function renderLatexEnvRows(rows) {
+  return rows.map(row => row.map(cell => toLatex(cell)).join(" & ")).join(" \\\\ ");
+}
+
+function formatHwpMatrixColumnMode(envName, rows, alignSpec) {
+  const columnCount = Math.max(
+    alignSpec ? alignSpec.length : 0,
+    rows.reduce((max, row) => Math.max(max, row.length), 0)
+  );
+  const normalizedAlign = (alignSpec || "").padEnd(columnCount, "c");
+  const columns = [];
+
+  for (let columnIndex = 0; columnIndex < columnCount; columnIndex++) {
+    const keyword = alignToHwpColumnKeyword(normalizedAlign[columnIndex] || "c");
+    const entries = [];
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      entries.push(toHwpEqn(rows[rowIndex][columnIndex] || { type: "Literal", value: "" }));
+    }
+    columns.push(`${keyword}{${entries.join(" # ")}}`);
+  }
+
+  return `${envName}{${columns.join(" ")}}`;
+}
+
+function splitHwpRows(tokens) {
+  const rows = [];
+  let row = [];
+  let cell = [];
+  let depth = 1;
+
+  const pushCell = () => {
+    row.push(parseTokenSlice(HwpParser, cell));
+    cell = [];
+  };
+
+  const pushRow = () => {
+    pushCell();
+    rows.push(row);
+    row = [];
+  };
+
+  while (tokens.length > 0) {
+    const tk = tokens.shift();
+    if (tk.type === TokenType.EOF) break;
+    if (tk.type === TokenType.SYMBOL && isOpenDelimiter(tk.value)) {
+      depth++;
+      cell.push(tk);
+      continue;
+    }
+    if (tk.type === TokenType.SYMBOL && isCloseDelimiter(tk.value)) {
+      depth--;
+      if (tk.value === "}" && depth === 0) {
+        if (cell.length > 0 || row.length > 0) pushRow();
+        break;
+      }
+      cell.push(tk);
+      continue;
+    }
+    if (depth === 1 && tk.type === TokenType.SYMBOL && tk.value === "#") {
+      pushRow();
+      continue;
+    }
+    if (depth === 1 && tk.type === TokenType.SYMBOL && tk.value === "&") {
+      pushCell();
+      continue;
+    }
+    if (depth === 1 && tk.type === TokenType.SYMBOL && tk.value === "\\\\") {
+      pushRow();
+      continue;
+    }
+    cell.push(tk);
+  }
+
+  return rows.length > 0 ? rows : [[{ type: "Literal", value: "" }]];
+}
+
+function splitLatexRows(tokens, envName) {
+  const rows = [];
+  let row = [];
+  let cell = [];
+  let depth = 0;
+  let consumed = 0;
+
+  const pushCell = () => {
+    row.push(parseTokenSlice(LatexParser, cell));
+    cell = [];
+  };
+
+  const pushRow = () => {
+    pushCell();
+    rows.push(row);
+    row = [];
+  };
+
+  const isEndEnvAt = (idx) => {
+    const t0 = tokens[idx];
+    const t1 = tokens[idx + 1];
+    const t2 = tokens[idx + 2];
+    if (!t0 || !t1 || !t2) return false;
+    return t0.type === TokenType.KEYWORD && t0.value === "end"
+      && t1.type === TokenType.SYMBOL && t1.value === "{"
+      && (t2.type === TokenType.IDENT || t2.type === TokenType.KEYWORD)
+      && t2.value.toLowerCase() === envName;
+  };
+
+  let i = 0;
+  while (i < tokens.length) {
+    const tk = tokens[i];
+    if (tk.type === TokenType.EOF) break;
+    if (depth === 0 && isEndEnvAt(i)) {
+      if (cell.length > 0 || row.length > 0) pushRow();
+      consumed = i;
+      break;
+    }
+    if (tk.type === TokenType.SYMBOL && isOpenDelimiter(tk.value)) {
+      depth++;
+      cell.push(tk);
+      i++;
+      continue;
+    }
+    if (tk.type === TokenType.SYMBOL && isCloseDelimiter(tk.value)) {
+      depth = Math.max(0, depth - 1);
+      cell.push(tk);
+      i++;
+      continue;
+    }
+    if (depth === 0 && tk.type === TokenType.SYMBOL && tk.value === "&") {
+      pushCell();
+      i++;
+      continue;
+    }
+    if (depth === 0 && tk.type === TokenType.SYMBOL && tk.value === "\\\\") {
+      pushRow();
+      i++;
+      continue;
+    }
+    cell.push(tk);
+    i++;
+  }
+
+  if (consumed === 0 && i >= tokens.length) consumed = i;
+  return {
+    rows: rows.length > 0 ? rows : [[{ type: "Literal", value: "" }]],
+    consumed
+  };
+}
+
 class HwpParser {
   constructor(tokens) {
     this.tokens = tokens.filter(t => t.type !== TokenType.SPACE && t.type !== TokenType.UNKNOWN);
     this.pos = 0;
   }
-  peek() { return this.tokens[this.pos] || {type:TokenType.EOF,value:""}; }
-  next() { const t=this.peek(); if(t.type!==TokenType.EOF) this.pos++; return t; }
-  matchSymbol(v) { const t=this.peek(); return t.type===TokenType.SYMBOL&&t.value===v; }
+  peek() { return this.tokens[this.pos] || { type: TokenType.EOF, value: "" }; }
+  next() { const t = this.peek(); if (t.type !== TokenType.EOF) this.pos++; return t; }
+  matchSymbol(v) { const t = this.peek(); return t.type === TokenType.SYMBOL && t.value === v; }
+  matchKeyword(v) { const t = this.peek(); return t.type === TokenType.KEYWORD && t.value === v; }
 
-  parseExpression() { return this.parseExpr(); }
+  parseExpression() { return this.parseRelation(); }
 
   canStartFactor() {
-    const t=this.peek();
-    if(t.type===TokenType.NUMBER||t.type===TokenType.IDENT) return true;
-    if(t.type===TokenType.KEYWORD){const kw=t.value.toUpperCase();return kw!=="TIMES"&&kw!=="OVER"&&kw!=="ATOP"&&kw!=="RIGHT";}
-    if(t.type===TokenType.SYMBOL&&"([{".includes(t.value)) return true;
+    const t = this.peek();
+    if (t.type === TokenType.NUMBER || t.type === TokenType.IDENT) return true;
+    if (t.type === TokenType.KEYWORD) {
+      const kw = t.value;
+      return !["TIMES", "OVER", "ATOP", "CHOOSE", "REL", "BUILDREL", "RIGHT"].includes(kw);
+    }
+    if (t.type === TokenType.SYMBOL && (isOpenDelimiter(t.value) || t.value === "\"")) return true;
     return false;
   }
 
-  parseExpr() {
+  tryParseCompoundSymbolOperator() {
+    const t1 = this.peek();
+    const t2 = this.tokens[this.pos + 1];
+    const t3 = this.tokens[this.pos + 2];
+    if (t1.type !== TokenType.SYMBOL) return null;
+    const v1 = t1.value;
+    const v2 = t2 && t2.type === TokenType.SYMBOL ? t2.value : "";
+    const v3 = t3 && t3.type === TokenType.SYMBOL ? t3.value : "";
+    if (v1 === "<" && v2 === "-" && v3 === ">") { this.pos += 3; return "<->"; }
+    if (v1 === "-" && v2 === ">") { this.pos += 2; return "->"; }
+    if (v1 === "<" && v2 === "-") { this.pos += 2; return "<-"; }
+    if (v1 === "<" && v2 === "=") { this.pos += 2; return "<="; }
+    if (v1 === ">" && v2 === "=") { this.pos += 2; return ">="; }
+    if (v1 === "<" && v2 === ">") { this.pos += 2; return "<>"; }
+    if (v1 === "=" && v2 === ">") { this.pos += 2; return "=>"; }
+    if (["=", "<", ">"].includes(v1)) { this.pos += 1; return v1; }
+    return null;
+  }
+
+  tryParseInfixRelationOperator() {
+    const start = this.pos;
+    const op = this.tryParseCompoundSymbolOperator();
+    if (op) return op;
+    this.pos = start;
+    const t = this.peek();
+    if (t.type === TokenType.IDENT || t.type === TokenType.KEYWORD) {
+      const normalized = normalizeHwpOperator(t.value);
+      if (RELATION_OPERATORS.has(normalized)) {
+        this.next();
+        return normalized;
+      }
+    }
+    return null;
+  }
+
+  parseRelation() {
+    let node = this.parseAdditive();
+    while (true) {
+      if (this.matchKeyword("REL") || this.matchKeyword("BUILDREL")) {
+        node = this.parseAnnotatedRelation(node);
+        continue;
+      }
+      const op = this.tryParseInfixRelationOperator();
+      if (!op) break;
+      const right = this.parseAdditive();
+      node = { type: "BinaryOp", operator: op, left: node, right };
+    }
+    return node;
+  }
+
+  parseAnnotatedRelation(left) {
+    const buildOnly = this.next().value === "BUILDREL";
+    const arrow = this.parseRelationSymbol();
+    const above = this.parseAnnotationArgument();
+    const below = buildOnly ? null : this.parseAnnotationArgument();
+    const right = this.parseAdditive();
+    return { type: "Relation", left, arrow, above, below, right };
+  }
+
+  parseRelationSymbol() {
+    const op = this.tryParseCompoundSymbolOperator();
+    if (op) return op;
+    const t = this.peek();
+    if (t.type === TokenType.IDENT || t.type === TokenType.KEYWORD || t.type === TokenType.SYMBOL) {
+      this.next();
+      return normalizeHwpOperator(t.value);
+    }
+    return "";
+  }
+
+  parseAnnotationArgument() {
+    if (this.matchSymbol("{")) {
+      this.next();
+      const expr = this.parseExpression();
+      if (this.matchSymbol("}")) this.next();
+      return expr;
+    }
+    return this.parseFactor();
+  }
+
+  parseAdditive() {
     let node = this.parseTerm();
-    while(true) {
-      const t=this.peek();
-      if(t.type===TokenType.SYMBOL&&(t.value==='+'||t.value==='-'||t.value==='=')) { this.next(); const r=this.parseTerm(); node={type:"BinaryOp",operator:t.value,left:node,right:r}; }
-      else break;
+    while (true) {
+      const t = this.peek();
+      if (t.type === TokenType.SYMBOL && (t.value === "+" || t.value === "-")) {
+        const next = this.tokens[this.pos + 1];
+        if (t.value === "-" && next && next.type === TokenType.SYMBOL && next.value === ">") break;
+        this.next();
+        const right = this.parseTerm();
+        node = { type: "BinaryOp", operator: t.value, left: node, right };
+      } else {
+        break;
+      }
     }
     return node;
   }
 
   parseTerm() {
     let node = this.parseFactor();
-    while(true) {
-      const t=this.peek();
-      if(t.type===TokenType.KEYWORD) {
-        const kw=t.value.toUpperCase();
-        if(kw==="TIMES") { this.next(); const r=this.parseFactor(); node={type:"BinaryOp",operator:"times",left:node,right:r}; }
-        else if(kw==="OVER"||kw==="ATOP") { this.next(); const d=this.parseFactor(); node={type:"Fraction",numerator:node,denominator:d,withBar:kw==="OVER"}; }
-        else if(this.canStartFactor()) { const r=this.parseFactor(); node={type:"BinaryOp",operator:"",left:node,right:r}; }
-        else break;
-      } else if(t.type===TokenType.SYMBOL&&t.value==="/") { this.next(); const r=this.parseFactor(); node={type:"BinaryOp",operator:"/",left:node,right:r}; }
-      else if(this.canStartFactor()) { const r=this.parseFactor(); node={type:"BinaryOp",operator:"",left:node,right:r}; }
-      else break;
+    while (true) {
+      const t = this.peek();
+      if (t.type === TokenType.KEYWORD) {
+        const kw = t.value;
+        if (kw === "TIMES") {
+          this.next();
+          node = { type: "BinaryOp", operator: "times", left: node, right: this.parseFactor() };
+          continue;
+        }
+        if (kw === "OVER" || kw === "ATOP") {
+          this.next();
+          node = { type: "Fraction", numerator: node, denominator: this.parseFactor(), withBar: kw === "OVER" };
+          continue;
+        }
+        if (kw === "CHOOSE") {
+          this.next();
+          node = { type: "Choose", total: node, choose: this.parseFactor() };
+          continue;
+        }
+      }
+      if (t.type === TokenType.SYMBOL && t.value === "/") {
+        this.next();
+        node = { type: "BinaryOp", operator: "/", left: node, right: this.parseFactor() };
+        continue;
+      }
+      if (this.canStartFactor()) {
+        node = { type: "BinaryOp", operator: "", left: node, right: this.parseFactor() };
+        continue;
+      }
+      break;
     }
     return node;
   }
 
   parseFactor() {
-    const fc=this.tryParseFunctionCall(); if(fc) return fc;
-    const t=this.peek();
-    if(t.type===TokenType.NUMBER) { this.next(); return this.maybeParseSubSup({type:"Literal",value:t.value}); }
-    if(t.type===TokenType.IDENT) { this.next(); return this.maybeParseSubSup({type:"Literal",value:t.value}); }
-    if(t.type===TokenType.KEYWORD) {
-      this.next(); const kw=t.value.toUpperCase();
-      if(kw==="SQRT") { let rad=this.parseFactor(); if(rad.type==="Bracket") rad=this.removeBracket(rad); return {type:"Root",radicand:rad}; }
-      if(kw==="INT"||kw==="OINT") {
-        const iNode={type:"Integral",variant:kw==="INT"?"int":"oint"};
-        if(this.matchSymbol("_")){this.next();iNode.lower=this.parseSubOrSupContent();}
-        if(this.matchSymbol("^")){this.next();iNode.upper=this.parseSubOrSupContent();}
-        iNode.body=this.parseFactor(); if(iNode.body.type==="Bracket") iNode.body=this.removeBracket(iNode.body);
-        return iNode;
-      }
-      if(kw==="SUM") {
-        const sNode={type:"Summation"};
-        if(this.matchSymbol("_")){this.next();sNode.lower=this.parseSubOrSupContent();}
-        if(this.matchSymbol("^")){this.next();sNode.upper=this.parseSubOrSupContent();}
-        sNode.body=this.parseFactor(); if(sNode.body&&sNode.body.type==="Bracket") sNode.body=this.removeBracket(sNode.body);
-        return sNode;
-      }
-      if(["ACUTE","GRAVE","DOT","DDOT","BAR","VEC","HAT","TILDE","ARCH","CHECK"].includes(kw)) {
-        let child=this.parseFactor(); if(child.type==="Bracket") child=this.removeBracket(child);
-        return {type:"Decorated",decoType:kw.toLowerCase(),child};
-      }
-      if(kw==="LEFT") return this.parseLeftBracket();
-      if(kw==="RIGHT") return {type:"Literal",value:"RIGHT"};
-      if(kw==="PMATRIX"||kw==="CASES") return this.parseEnv(kw.toLowerCase());
-      return {type:"Literal",value:kw};
+    const fc = this.tryParseFunctionCall();
+    if (fc) return fc;
+    const t = this.peek();
+    if (t.type === TokenType.SYMBOL && t.value === "+") {
+      this.next();
+      return { type: "UnaryOp", operator: "+", child: this.parseFactor() };
     }
-    if(t.type===TokenType.SYMBOL) {
-      if("([{".includes(t.value)) return this.parseBracketDirect();
-      if(")]}".includes(t.value)) { this.next(); return {type:"Literal",value:t.value}; }
-      this.next(); return {type:"Literal",value:t.value};
+    if (t.type === TokenType.SYMBOL && t.value === "-") {
+      this.next();
+      return { type: "UnaryOp", operator: "-", child: this.parseFactor() };
     }
-    this.next(); return {type:"Literal",value:""};
+    if (t.type === TokenType.NUMBER) { this.next(); return this.maybeParseSubSup({ type: "Literal", value: t.value }); }
+    if (t.type === TokenType.IDENT) {
+      this.next();
+      return this.maybeParseSubSup(makeNameNode(t.value));
+    }
+    if (t.type === TokenType.KEYWORD) {
+      this.next();
+      const kw = t.value;
+      if (kw === "SQRT") {
+        let rad = this.parseFactor();
+        if (rad.type === "Bracket") rad = this.removeBracket(rad);
+        return { type: "Root", radicand: rad };
+      }
+      if (kw === "INT" || kw === "OINT") {
+        const node = { type: "Integral", variant: kw === "INT" ? "int" : "oint" };
+        if (this.matchSymbol("_")) { this.next(); node.lower = this.parseSubOrSupContent(); }
+        if (this.matchSymbol("^")) { this.next(); node.upper = this.parseSubOrSupContent(); }
+        if (this.canStartFactor()) {
+          node.body = this.parseFactor();
+          if (node.body.type === "Bracket") node.body = this.removeBracket(node.body);
+        }
+        return node;
+      }
+      if (kw === "SUM") {
+        const node = { type: "Summation" };
+        if (this.matchSymbol("_")) { this.next(); node.lower = this.parseSubOrSupContent(); }
+        if (this.matchSymbol("^")) { this.next(); node.upper = this.parseSubOrSupContent(); }
+        if (this.canStartFactor()) {
+          node.body = this.parseFactor();
+          if (node.body && node.body.type === "Bracket") node.body = this.removeBracket(node.body);
+        }
+        return node;
+      }
+      if (kw === "BINOM") return this.parseChoosePrefix();
+      if (kw === "BIGG") return { type: "SizedLiteral", size: "bigg", child: this.parseSizedTarget() };
+      if (kw === "NOT") return { type: "Negation", child: this.parseFactor() };
+      if (["RM","IT","BOLD","RMBOLD"].includes(kw)) return this.parseStyledPrefix(kw.toLowerCase());
+      if (["ACUTE","GRAVE","DOT","DDOT","BAR","VEC","DYAD","UNDER","HAT","ARCH","CHECK","TILDE"].includes(kw)) {
+        let child = this.parseFactor();
+        if (child.type === "Bracket") child = this.removeBracket(child);
+        return { type: "Decorated", decoType: kw.toLowerCase(), child };
+      }
+      if (kw === "LEFT") return this.parseLeftBracket();
+      if (["MATRIX","PMATRIX","BMATRIX","DMATRIX","CASES","PILE","LPILE","RPILE","EQALIGN"].includes(kw)) {
+        return this.parseEnv(kw.toLowerCase());
+      }
+      return this.maybeParseSubSup({ type: "Literal", value: kw });
+    }
+    if (t.type === TokenType.SYMBOL) {
+      if (t.value === "\"") return this.parseQuotedText();
+      if (isOpenDelimiter(t.value)) return this.parseBracketDirect();
+      if (isCloseDelimiter(t.value)) { this.next(); return { type: "Literal", value: t.value }; }
+      this.next();
+      return { type: "Literal", value: t.value };
+    }
+    this.next();
+    return { type: "Literal", value: "" };
+  }
+
+  parseChoosePrefix() {
+    const total = this.parseAnnotationArgument();
+    const choose = this.parseAnnotationArgument();
+    return { type: "Choose", total, choose };
+  }
+
+  parseStyledPrefix(style) {
+    let child = this.parseStyleArgument();
+    if (child && child.type === "Bracket" && child.leftDelim === "{") child = this.removeBracket(child);
+    return this.maybeParseSubSup({ type: "Styled", style, child });
+  }
+
+  parseStyleArgument() {
+    if (this.matchSymbol("{")) return this.parseSubOrSupContent();
+    const t = this.peek();
+    if (t.type === TokenType.NUMBER) {
+      this.next();
+      return { type: "Literal", value: t.value };
+    }
+    if (t.type === TokenType.IDENT) {
+      this.next();
+      return makeNameNode(t.value);
+    }
+    if (t.type === TokenType.KEYWORD) {
+      this.next();
+      return makeNameNode(t.value);
+    }
+    if (t.type === TokenType.SYMBOL && t.value === "\"") return this.parseQuotedText();
+    if (t.type === TokenType.SYMBOL && isOpenDelimiter(t.value)) return this.parseBracketDirect();
+    if (t.type !== TokenType.EOF) {
+      this.next();
+      return { type: "Literal", value: t.value };
+    }
+    return { type: "Literal", value: "" };
+  }
+
+  parseSizedTarget() {
+    const t = this.peek();
+    if (t.type === TokenType.SYMBOL || t.type === TokenType.IDENT || t.type === TokenType.KEYWORD || t.type === TokenType.NUMBER) {
+      this.next();
+      return { type: "Literal", value: t.value };
+    }
+    return { type: "Literal", value: "" };
+  }
+
+  parseQuotedText() {
+    this.next();
+    let value = "";
+    while (!this.matchSymbol("\"") && this.peek().type !== TokenType.EOF) {
+      value += this.next().value;
+    }
+    if (this.matchSymbol("\"")) this.next();
+    return this.maybeParseSubSup({ type: "Text", value });
   }
 
   tryParseFunctionCall() {
-    const t1=this.peek();
-    if(t1.type===TokenType.IDENT) {
-      const t2=this.tokens[this.pos+1];
-      if(t2&&t2.type===TokenType.KEYWORD&&t2.value.toUpperCase()==="LEFT") { this.next(); const fLit={type:"Literal",value:t1.value}; const bracket=this.parseLeftBracket(); return this.maybeParseSubSup({type:"BinaryOp",operator:"apply",left:fLit,right:bracket}); }
-      if(t2&&t2.type===TokenType.SYMBOL&&"([{".includes(t2.value)) { this.next(); const fLit={type:"Literal",value:t1.value}; const bracket=this.parseBracketDirect(); return this.maybeParseSubSup({type:"BinaryOp",operator:"apply",left:fLit,right:bracket}); }
+    const t1 = this.peek();
+    const t2 = this.tokens[this.pos + 1];
+    if (t1.type !== TokenType.IDENT) return undefined;
+    if (t2 && t2.type === TokenType.KEYWORD && t2.value === "LEFT") {
+      this.next();
+      return this.maybeParseSubSup({ type: "BinaryOp", operator: "apply", left: makeNameNode(t1.value), right: this.parseLeftBracket() });
+    }
+    if (t2 && t2.type === TokenType.SYMBOL && isOpenDelimiter(t2.value)) {
+      this.next();
+      return this.maybeParseSubSup({ type: "BinaryOp", operator: "apply", left: makeNameNode(t1.value), right: this.parseBracketDirect() });
     }
     return undefined;
   }
 
   parseLeftBracket() {
-    let leftD=""; const s=this.peek();
-    if(s.type===TokenType.SYMBOL&&"([{".includes(s.value)){leftD="LEFT"+s.value;this.next();}
-    const content=this.parseExpr();
-    let rightD=""; let maybeR=this.peek();
-    if(maybeR.type===TokenType.KEYWORD&&maybeR.value.toUpperCase()==="RIGHT"){this.next();const sym2=this.peek();if(sym2.type===TokenType.SYMBOL&&")]}".includes(sym2.value)){rightD="RIGHT"+sym2.value;this.next();}}
-    if(leftD===""&&rightD==="") return content;
-    let br={type:"Bracket",leftDelim:leftD,rightDelim:rightD,content}; br=this.flattenBracket(br);
-    return this.maybeParseSubSup(br);
+    let leftDelim = "";
+    const s = this.peek();
+    if (s.type === TokenType.SYMBOL && isOpenDelimiter(s.value)) {
+      leftDelim = "LEFT" + s.value;
+      this.next();
+    }
+    const content = this.parseExpression();
+    let rightDelim = "";
+    if (this.matchKeyword("RIGHT")) {
+      this.next();
+      const s2 = this.peek();
+      if (s2.type === TokenType.SYMBOL && isCloseDelimiter(s2.value)) {
+        rightDelim = "RIGHT" + s2.value;
+        this.next();
+      }
+    }
+    if (leftDelim === "" && rightDelim === "") return content;
+    return this.maybeParseSubSup(this.flattenBracket({ type: "Bracket", leftDelim, rightDelim, content }));
   }
 
   parseBracketDirect() {
-    const open=this.peek(); const left=open.value; this.next();
-    const expr=this.parseExpr(); let right="";
-    if((left==="("&&this.matchSymbol(")"))||(left==="["&&this.matchSymbol("]"))||(left==="{"&&this.matchSymbol("}"))) { right=this.peek().value; this.next(); }
-    let br={type:"Bracket",leftDelim:left,rightDelim:right,content:expr}; br=this.flattenBracket(br);
-    return this.maybeParseSubSup(br);
+    const open = this.next().value;
+    const content = this.parseExpression();
+    let right = "";
+    if (matchingDelimiter(open) === this.peek().value) {
+      right = this.next().value;
+    }
+    return this.maybeParseSubSup(this.flattenBracket({ type: "Bracket", leftDelim: open, rightDelim: right, content }));
   }
 
   flattenBracket(br) {
-    if(br.content.type==="Bracket") { const inner=br.content; if(br.leftDelim===inner.leftDelim&&br.rightDelim===inner.rightDelim&&(br.leftDelim==="{"||br.leftDelim==="")) return inner; }
+    if (br.content.type === "Bracket") {
+      const inner = br.content;
+      if (br.leftDelim === inner.leftDelim && br.rightDelim === inner.rightDelim && (br.leftDelim === "{" || br.leftDelim === "")) return inner;
+    }
     return br;
   }
-  removeBracket(br) { if(br.leftDelim==="{"||br.leftDelim==="") return br.content; return br; }
+
+  removeBracket(br) {
+    if (br.leftDelim === "{" || br.leftDelim === "") return br.content;
+    return br;
+  }
 
   parseEnv(envName) {
-    if(!this.matchSymbol("{")) return {type:"Literal",value:envName};
-    this.next(); const rows=[]; let currentRow=[];
-    while(!this.matchSymbol("}")) {
-      const tk=this.peek(); if(tk.type===TokenType.EOF) break;
-      if(tk.type===TokenType.SYMBOL&&tk.value==="\\\\") { this.next(); if(currentRow.length>0||rows.length===0) rows.push(currentRow); currentRow=[]; }
-      else if(tk.type===TokenType.SYMBOL&&tk.value==="#") { this.next(); rows.push(currentRow); currentRow=[]; }
-      else if(tk.type===TokenType.SYMBOL&&tk.value==="&") { this.next(); }
-      else { const f=this.parseFactor(); if(f.type!=="Literal"||f.value!=="") currentRow.push(f); }
+    if (isHwpMatrixEnvName(envName)) {
+      if (this.peek().type === TokenType.KEYWORD && ["COL","LCOL","RCOL"].includes(this.peek().value)) {
+        return this.parseMatrixColumnEnv(envName, false);
+      }
+      if (this.matchSymbol("{")) {
+        const nextToken = this.tokens[this.pos + 1];
+        if (nextToken && nextToken.type === TokenType.KEYWORD && ["COL","LCOL","RCOL"].includes(nextToken.value)) {
+          return this.parseMatrixColumnEnv(envName, true);
+        }
+      }
     }
-    if(currentRow.length>0) rows.push(currentRow);
-    if(this.matchSymbol("}")) this.next();
-    return {type:"BeginEnv",envName,rows};
+
+    let alignSpec = null;
+    if (this.peek().type === TokenType.KEYWORD && ["COL","LCOL","RCOL"].includes(this.peek().value)) {
+      const kw = this.next().value;
+      alignSpec = hwpColumnKeywordToAlign(kw);
+    }
+    if (!this.matchSymbol("{")) return { type: "Literal", value: envName };
+    this.next();
+    const rows = splitHwpRows(this.tokens.slice(this.pos));
+    let depth = 1;
+    while (this.peek().type !== TokenType.EOF && depth > 0) {
+      const tk = this.next();
+      if (tk.type === TokenType.SYMBOL && isOpenDelimiter(tk.value)) depth++;
+      else if (tk.type === TokenType.SYMBOL && isCloseDelimiter(tk.value)) depth--;
+    }
+    return this.maybeParseSubSup({ type: "BeginEnv", envName, rows, alignSpec });
+  }
+
+  parseMatrixColumnEnv(envName, wrapped) {
+    if (wrapped && this.matchSymbol("{")) this.next();
+    const columns = [];
+    while (this.peek().type === TokenType.KEYWORD && ["COL","LCOL","RCOL"].includes(this.peek().value)) {
+      columns.push(this.parseMatrixColumnGroup());
+    }
+    if (wrapped && this.matchSymbol("}")) this.next();
+    const { rows, columnAlignSpec } = transposeHwpMatrixColumns(columns);
+    return this.maybeParseSubSup({ type: "BeginEnv", envName, rows, columnAlignSpec, columnMode: true });
+  }
+
+  parseMatrixColumnGroup() {
+    const alignKeyword = this.next().value;
+    if (!this.matchSymbol("{")) {
+      return { align: hwpColumnKeywordToAlign(alignKeyword), entries: [{ type: "Literal", value: "" }] };
+    }
+    this.next();
+    const tokens = [];
+    let depth = 1;
+    while (this.peek().type !== TokenType.EOF && depth > 0) {
+      const tk = this.next();
+      if (tk.type === TokenType.SYMBOL && isOpenDelimiter(tk.value)) {
+        depth++;
+        tokens.push(tk);
+        continue;
+      }
+      if (tk.type === TokenType.SYMBOL && isCloseDelimiter(tk.value)) {
+        depth--;
+        if (depth === 0) break;
+        tokens.push(tk);
+        continue;
+      }
+      tokens.push(tk);
+    }
+    return {
+      align: hwpColumnKeywordToAlign(alignKeyword),
+      entries: splitHwpColumnEntries(tokens)
+    };
   }
 
   maybeParseSubSup(base) {
-    let node=base;
-    while(true) {
-      const t=this.peek();
-      if(t.type===TokenType.SYMBOL&&t.value==="^") { this.next(); const exp=this.parseFactor(); node={type:"Superscript",base:node,exponent:exp}; }
-      else if(t.type===TokenType.SYMBOL&&t.value==="_") { this.next(); const sub=this.parseFactor(); node={type:"Subscript",base:node,sub}; }
-      else break;
+    let node = base;
+    while (true) {
+      if (this.matchSymbol("^")) {
+        this.next();
+        node = { type: "Superscript", base: node, exponent: this.parseSubOrSupContent() };
+        continue;
+      }
+      if (this.matchSymbol("_")) {
+        this.next();
+        node = { type: "Subscript", base: node, sub: this.parseSubOrSupContent() };
+        continue;
+      }
+      break;
     }
     return node;
   }
 
   parseSubOrSupContent() {
-    if(this.matchSymbol("{")) {
+    if (this.matchSymbol("{")) {
       this.next();
-      const expr=this.parseExpr();
-      if(this.matchSymbol("}")) this.next();
+      const expr = this.parseExpression();
+      if (this.matchSymbol("}")) this.next();
       return expr;
     }
     return this.parseSingleFactorNoSubSup();
   }
 
   parseSingleFactorNoSubSup() {
-    const t=this.peek();
-    if(t.type!==TokenType.EOF) { this.next(); return {type:"Literal",value:t.value}; }
-    return {type:"Literal",value:""};
+    const t = this.peek();
+    if (t.type !== TokenType.EOF) {
+      this.next();
+      return { type: "Literal", value: t.value };
+    }
+    return { type: "Literal", value: "" };
   }
 }
 
-// ── LaTeX Parser ──
 class LatexParser {
   constructor(tokens) {
     this.tokens = tokens.filter(t => t.type !== TokenType.SPACE && t.type !== TokenType.UNKNOWN);
     this.pos = 0;
   }
-  peek() { return this.tokens[this.pos] || {type:TokenType.EOF,value:""}; }
-  next() { const t=this.peek(); if(t.type!==TokenType.EOF) this.pos++; return t; }
-  matchSymbol(v) { const t=this.peek(); return t.type===TokenType.SYMBOL&&t.value===v; }
-  matchKeyword(k) { const t=this.peek(); return t.type===TokenType.KEYWORD&&t.value.toLowerCase()===k.toLowerCase(); }
+  peek() { return this.tokens[this.pos] || { type: TokenType.EOF, value: "" }; }
+  next() { const t = this.peek(); if (t.type !== TokenType.EOF) this.pos++; return t; }
+  matchSymbol(v) { const t = this.peek(); return t.type === TokenType.SYMBOL && t.value === v; }
+  matchKeyword(v) { const t = this.peek(); return t.type === TokenType.KEYWORD && t.value === v; }
+
+  parseExpression() { return this.parseRelation(); }
 
   canStartFactor() {
-    const t=this.peek();
-    if(t.type===TokenType.NUMBER||t.type===TokenType.IDENT) return true;
-    if(t.type===TokenType.KEYWORD){const kw=t.value.toLowerCase();return kw!=="times"&&kw!=="right"&&kw!=="end";}
-    if(t.type===TokenType.SYMBOL&&"([{".includes(t.value)) return true;
+    const t = this.peek();
+    if (t.type === TokenType.NUMBER || t.type === TokenType.IDENT) return true;
+    if (t.type === TokenType.KEYWORD) {
+      const kw = t.value;
+      return !["times","right","end","over","atop","choose","overset","underset"].includes(kw);
+    }
+    if (t.type === TokenType.SYMBOL && isOpenDelimiter(t.value)) return true;
     return false;
   }
 
-  parseExpression() { return this.parseExpr(); }
+  tryParseCompoundSymbolOperator() {
+    const t1 = this.peek();
+    const t2 = this.tokens[this.pos + 1];
+    const t3 = this.tokens[this.pos + 2];
+    if (t1.type !== TokenType.SYMBOL) return null;
+    const v1 = t1.value;
+    const v2 = t2 && t2.type === TokenType.SYMBOL ? t2.value : "";
+    const v3 = t3 && t3.type === TokenType.SYMBOL ? t3.value : "";
+    if (v1 === "<" && v2 === "-" && v3 === ">") { this.pos += 3; return "<->"; }
+    if (v1 === "-" && v2 === ">") { this.pos += 2; return "->"; }
+    if (v1 === "<" && v2 === "-") { this.pos += 2; return "<-"; }
+    if (v1 === "<" && v2 === "=") { this.pos += 2; return "<="; }
+    if (v1 === ">" && v2 === "=") { this.pos += 2; return ">="; }
+    if (v1 === "<" && v2 === ">") { this.pos += 2; return "<>"; }
+    if (v1 === "=" && v2 === ">") { this.pos += 2; return "=>"; }
+    if (["=", "<", ">"].includes(v1)) { this.pos += 1; return v1; }
+    return null;
+  }
 
-  parseExpr() {
-    let node=this.parseTerm();
-    while(true) {
-      const t=this.peek();
-      if(t.type===TokenType.SYMBOL&&(t.value==='+'||t.value==='-'||t.value==='=')) { this.next(); const r=this.parseTerm(); node={type:"BinaryOp",operator:t.value,left:node,right:r}; }
-      else break;
+  tryParseInfixRelationOperator() {
+    const start = this.pos;
+    const op = this.tryParseCompoundSymbolOperator();
+    if (op) return op;
+    this.pos = start;
+    const t = this.peek();
+    if (t.type === TokenType.IDENT || t.type === TokenType.KEYWORD) {
+      const normalized = normalizeLatexOperator(t.value);
+      if (RELATION_OPERATORS.has(normalized)) {
+        this.next();
+        return normalized;
+      }
+    }
+    return null;
+  }
+
+  tryParseAnnotatedRelationOperator() {
+    if (!this.matchKeyword("overset") && !this.matchKeyword("underset")) return null;
+    const start = this.pos;
+    const op = this.parseAnnotatedOperator();
+    if (op && RELATION_OPERATORS.has(op.arrow)) return op;
+    this.pos = start;
+    return null;
+  }
+
+  parseAnnotatedOperator() {
+    if (this.matchKeyword("overset") || this.matchKeyword("underset")) {
+      const kind = this.next().value;
+      const annotation = this.parseGroupExpression();
+      let base = null;
+      if (this.matchSymbol("{")) {
+        this.next();
+        base = this.parseAnnotatedOperator() || this.parseRelationOperatorAtom();
+        if (this.matchSymbol("}")) this.next();
+      } else {
+        base = this.parseAnnotatedOperator() || this.parseRelationOperatorAtom();
+      }
+      if (!base) return null;
+      return {
+        arrow: base.arrow,
+        above: kind === "overset" ? annotation : base.above,
+        below: kind === "underset" ? annotation : base.below
+      };
+    }
+    return this.parseRelationOperatorAtom();
+  }
+
+  parseRelationOperatorAtom() {
+    const start = this.pos;
+    const op = this.tryParseCompoundSymbolOperator();
+    if (op) return { arrow: op, above: null, below: null };
+    this.pos = start;
+    const t = this.peek();
+    if (t.type === TokenType.IDENT || t.type === TokenType.KEYWORD) {
+      const normalized = normalizeLatexOperator(t.value);
+      if (RELATION_OPERATORS.has(normalized)) {
+        this.next();
+        return { arrow: normalized, above: null, below: null };
+      }
+    }
+    return null;
+  }
+
+  parseRelation() {
+    let node = this.parseAdditive();
+    while (true) {
+      const annotated = this.tryParseAnnotatedRelationOperator();
+      if (annotated) {
+        node = {
+          type: "Relation",
+          left: node,
+          arrow: annotated.arrow,
+          above: annotated.above,
+          below: annotated.below,
+          right: this.parseAdditive()
+        };
+        continue;
+      }
+      const op = this.tryParseInfixRelationOperator();
+      if (!op) break;
+      const right = this.parseAdditive();
+      node = { type: "BinaryOp", operator: op, left: node, right };
+    }
+    return node;
+  }
+
+  parseAdditive() {
+    let node = this.parseTerm();
+    while (true) {
+      const t = this.peek();
+      if (t.type === TokenType.SYMBOL && (t.value === "+" || t.value === "-")) {
+        const next = this.tokens[this.pos + 1];
+        if (t.value === "-" && next && next.type === TokenType.SYMBOL && next.value === ">") break;
+        this.next();
+        node = { type: "BinaryOp", operator: t.value, left: node, right: this.parseTerm() };
+      } else {
+        break;
+      }
     }
     return node;
   }
 
   parseTerm() {
-    let node=this.parseFactor();
-    while(true) {
-      const t=this.peek();
-      if(t.type===TokenType.KEYWORD&&t.value==="times") { this.next(); const r=this.parseFactor(); node={type:"BinaryOp",operator:"times",left:node,right:r}; }
-      else if(t.type===TokenType.SYMBOL&&t.value==="/") { this.next(); const r=this.parseFactor(); node={type:"BinaryOp",operator:"/",left:node,right:r}; }
-      else if(this.canStartFactor()) { const r=this.parseFactor(); node={type:"BinaryOp",operator:"",left:node,right:r}; }
-      else break;
+    let node = this.parseFactor();
+    while (true) {
+      const t = this.peek();
+      if (t.type === TokenType.KEYWORD) {
+        if (t.value === "times") {
+          this.next();
+          node = { type: "BinaryOp", operator: "times", left: node, right: this.parseFactor() };
+          continue;
+        }
+        if (t.value === "over" || t.value === "atop") {
+          this.next();
+          node = { type: "Fraction", numerator: node, denominator: this.parseFactor(), withBar: t.value === "over" };
+          continue;
+        }
+        if (t.value === "choose") {
+          this.next();
+          node = { type: "Choose", total: node, choose: this.parseFactor() };
+          continue;
+        }
+      }
+      if (t.type === TokenType.SYMBOL && t.value === "/") {
+        this.next();
+        node = { type: "BinaryOp", operator: "/", left: node, right: this.parseFactor() };
+        continue;
+      }
+      if (this.canStartFactor()) {
+        node = { type: "BinaryOp", operator: "", left: node, right: this.parseFactor() };
+        continue;
+      }
+      break;
     }
     return node;
   }
 
   parseFactor() {
-    const fc=this.tryParseFunctionCall(); if(fc) return fc;
-    const t=this.peek();
-    if(t.type===TokenType.NUMBER) { this.next(); return this.maybeParseSubSup({type:"Literal",value:t.value}); }
-    if(t.type===TokenType.IDENT) { this.next(); return this.maybeParseSubSup({type:"Literal",value:t.value}); }
-    if(t.type===TokenType.KEYWORD) {
-      this.next(); const kw=t.value.toLowerCase();
-      if(kw==="left") return this.parseLeftRightBracket();
-      if(kw==="right") return {type:"Literal",value:"\\right"};
-      if(kw==="begin") return this.parseBeginEnv();
-      if(kw==="end") { this.next(); return {type:"Literal",value:"\\end"}; }
-      if(kw==="sqrt") { let rad=this.parseFactor(); if(rad.type==="Bracket") rad=this.removeBracket(rad); return {type:"Root",radicand:rad}; }
-      if(kw==="frac") {
-        let num={type:"Literal",value:""}, den={type:"Literal",value:""};
-        if(this.matchSymbol("{")) { this.next(); num=this.parseExpression(); if(this.matchSymbol("}")) this.next(); }
-        if(this.matchSymbol("{")) { this.next(); den=this.parseExpression(); if(this.matchSymbol("}")) this.next(); }
-        return {type:"Fraction",numerator:num,denominator:den,withBar:true};
-      }
-      if(kw==="int"||kw==="oint") {
-        const iNode={type:"Integral",variant:kw==="int"?"int":"oint"};
-        this.parseIntegralSubSup(iNode); iNode.body=this.parseFactor();
-        if(iNode.body.type==="Bracket") iNode.body=this.removeBracket(iNode.body);
-        return iNode;
-      }
-      if(kw==="sum") {
-        const sNode={type:"Summation"}; this.parseSumSubSup(sNode);
-        sNode.body=this.parseFactor();
-        if(sNode.body&&sNode.body.type==="Bracket") sNode.body=this.removeBracket(sNode.body);
-        return sNode;
-      }
-      if(["acute","grave","dot","ddot","bar","vec","hat","tilde"].includes(kw)) {
-        let child=this.parseFactor(); if(child.type==="Bracket") child=this.removeBracket(child);
-        return {type:"Decorated",decoType:kw,child};
-      }
-      return {type:"Literal",value:"\\"+kw};
+    const fc = this.tryParseFunctionCall();
+    if (fc) return fc;
+    const t = this.peek();
+    if (t.type === TokenType.SYMBOL && t.value === "+") {
+      this.next();
+      return { type: "UnaryOp", operator: "+", child: this.parseFactor() };
     }
-    if(t.type===TokenType.SYMBOL) {
-      if("([{".includes(t.value)) {
-        this.next(); const left=t.value; const content=this.parseExpression(); let right="";
-        if((left==="("&&this.matchSymbol(")"))||(left==="["&&this.matchSymbol("]"))||(left==="{"&&this.matchSymbol("}"))) { right=this.peek().value; this.next(); }
-        return this.maybeParseSubSup({type:"Bracket",leftDelim:left,rightDelim:right,content});
-      }
-      if(")]}".includes(t.value)) { this.next(); return {type:"Literal",value:t.value}; }
-      if(t.value==="\\\\") { this.next(); return {type:"Literal",value:"\\\\"}; }
-      this.next(); return {type:"Literal",value:t.value};
+    if (t.type === TokenType.SYMBOL && t.value === "-") {
+      this.next();
+      return { type: "UnaryOp", operator: "-", child: this.parseFactor() };
     }
-    this.next(); return {type:"Literal",value:""};
+    if (t.type === TokenType.NUMBER) { this.next(); return this.maybeParseSubSup({ type: "Literal", value: t.value }); }
+    if (t.type === TokenType.IDENT) {
+      this.next();
+      return this.maybeParseSubSup(makeNameNode(t.value));
+    }
+    if (t.type === TokenType.KEYWORD) {
+      this.next();
+      const kw = t.value;
+      if (kw === "left") return this.parseLeftRightBracket();
+      if (kw === "begin") return this.parseBeginEnv();
+      if (kw === "sqrt") {
+        let rad = this.parseFactor();
+        if (rad.type === "Bracket") rad = this.removeBracket(rad);
+        return { type: "Root", radicand: rad };
+      }
+      if (kw === "frac") {
+        return { type: "Fraction", numerator: this.parseGroupExpression(), denominator: this.parseGroupExpression(), withBar: true };
+      }
+      if (kw === "int" || kw === "oint") {
+        const node = { type: "Integral", variant: kw === "int" ? "int" : "oint" };
+        if (this.matchSymbol("_")) { this.next(); node.lower = this.parseSubOrSupContent(); }
+        if (this.matchSymbol("^")) { this.next(); node.upper = this.parseSubOrSupContent(); }
+        if (this.canStartFactor()) {
+          node.body = this.parseFactor();
+          if (node.body.type === "Bracket") node.body = this.removeBracket(node.body);
+        }
+        return node;
+      }
+      if (kw === "sum") {
+        const node = { type: "Summation" };
+        if (this.matchSymbol("_")) { this.next(); node.lower = this.parseSubOrSupContent(); }
+        if (this.matchSymbol("^")) { this.next(); node.upper = this.parseSubOrSupContent(); }
+        if (this.canStartFactor()) {
+          node.body = this.parseFactor();
+          if (node.body && node.body.type === "Bracket") node.body = this.removeBracket(node.body);
+        }
+        return node;
+      }
+      if (kw === "binom") return this.parseChoosePrefix();
+      if (kw === "not") return { type: "Negation", child: this.parseFactor() };
+      if (["bigg","biggl","biggr","biggm"].includes(kw)) return { type: "SizedLiteral", size: "bigg", child: this.parseSizedTarget() };
+      if (["mathrm","mathit","mathbf","boldsymbol"].includes(kw)) return this.parseStyledCommand(kw);
+      if (kw === "operatorname") return this.parseOperatorName();
+      if (["acute","grave","dot","ddot","bar","vec","hat","tilde","check","widehat","widetilde","overparen","underline","overline","overrightarrow","overleftrightarrow"].includes(kw)) {
+        let child = this.parseFactor();
+        if (child.type === "Bracket") child = this.removeBracket(child);
+        return { type: "Decorated", decoType: LATEX_DECORATION_TO_HWP[kw] || kw, child };
+      }
+      if (kw === "text" || kw === "mathrm") return this.parseTextCommand();
+      return this.maybeParseSubSup({ type: "Literal", value: kw });
+    }
+    if (t.type === TokenType.SYMBOL) {
+      if (isOpenDelimiter(t.value)) {
+        const open = this.next().value;
+        const content = this.parseExpression();
+        let right = "";
+        if (matchingDelimiter(open) === this.peek().value) right = this.next().value;
+        return this.maybeParseSubSup(this.flattenBracket({ type: "Bracket", leftDelim: open, rightDelim: right, content }));
+      }
+      if (isCloseDelimiter(t.value)) { this.next(); return { type: "Literal", value: t.value }; }
+      if (t.value === "\\\\") { this.next(); return { type: "Literal", value: "\\\\" }; }
+      this.next();
+      return { type: "Literal", value: t.value };
+    }
+    this.next();
+    return { type: "Literal", value: "" };
+  }
+
+  parseChoosePrefix() {
+    return { type: "Choose", total: this.parseGroupExpression(), choose: this.parseGroupExpression() };
+  }
+
+  parseStyledCommand(command) {
+    let child = this.matchSymbol("{") ? this.parseGroupExpression() : this.parseFactor();
+    if (child && child.type === "Bracket" && child.leftDelim === "{") child = this.removeBracket(child);
+    return this.maybeParseSubSup({ type: "Styled", style: LATEX_STYLE_TO_HWP[command] || command, child });
+  }
+
+  parseOperatorName() {
+    const child = this.parseGroupExpression();
+    if (child.type === "Literal" || child.type === "Text" || child.type === "FunctionName") {
+      return this.maybeParseSubSup({ type: "FunctionName", value: child.value });
+    }
+    return this.maybeParseSubSup({ type: "FunctionName", value: toHwpEqn(child).replace(/^"|"$/g, "") });
+  }
+
+  parseSizedTarget() {
+    const t = this.peek();
+    if (t.type === TokenType.SYMBOL || t.type === TokenType.IDENT || t.type === TokenType.KEYWORD || t.type === TokenType.NUMBER) {
+      this.next();
+      return { type: "Literal", value: t.value };
+    }
+    return { type: "Literal", value: "" };
+  }
+
+  parseTextCommand() {
+    const valueNode = this.parseGroupExpression();
+    return { type: "Text", value: valueNode.type === "Literal" ? valueNode.value : toLatex(valueNode).replace(/^\\text\{|\}$/g, "") };
   }
 
   tryParseFunctionCall() {
-    const t1=this.peek();
-    if(t1.type===TokenType.IDENT) {
-      const t2=this.tokens[this.pos+1];
-      if(t2&&t2.type===TokenType.KEYWORD&&t2.value==="left") { this.next(); const fLit={type:"Literal",value:t1.value}; const bracket=this.parseLeftRightBracket(); return this.maybeParseSubSup({type:"BinaryOp",operator:"apply",left:fLit,right:bracket}); }
-      if(t2&&t2.type===TokenType.SYMBOL&&"([{".includes(t2.value)) { this.next(); const fLit={type:"Literal",value:t1.value}; const bracket=this.parseFactor(); return this.maybeParseSubSup({type:"BinaryOp",operator:"apply",left:fLit,right:bracket}); }
+    const t1 = this.peek();
+    const t2 = this.tokens[this.pos + 1];
+    if (t1.type !== TokenType.IDENT) return undefined;
+    if (t2 && t2.type === TokenType.KEYWORD && t2.value === "left") {
+      this.next();
+      return this.maybeParseSubSup({ type: "BinaryOp", operator: "apply", left: makeNameNode(t1.value), right: this.parseLeftRightBracket() });
+    }
+    if (t2 && t2.type === TokenType.SYMBOL && isOpenDelimiter(t2.value)) {
+      this.next();
+      return this.maybeParseSubSup({ type: "BinaryOp", operator: "apply", left: makeNameNode(t1.value), right: this.parseFactor() });
     }
     return undefined;
   }
 
   parseLeftRightBracket() {
-    let leftD=""; const s=this.peek();
-    if(s.type===TokenType.SYMBOL&&"([{".includes(s.value)) { leftD="\\left"+s.value; this.next(); }
-    const content=this.parseExpression();
-    let rightD="";
-    if(this.matchKeyword("right")) { this.next(); const s2=this.peek(); if(s2.type===TokenType.SYMBOL&&")]}".includes(s2.value)){rightD="\\right"+s2.value;this.next();} }
-    if(leftD===""&&rightD==="") return content;
-    let br={type:"Bracket",leftDelim:leftD,rightDelim:rightD,content}; br=this.flattenBracket(br);
-    return this.maybeParseSubSup(br);
+    let leftDelim = "";
+    const s = this.peek();
+    if (s.type === TokenType.SYMBOL && isOpenDelimiter(s.value)) {
+      leftDelim = "\\left" + s.value;
+      this.next();
+    }
+    const content = this.parseExpression();
+    let rightDelim = "";
+    if (this.matchKeyword("right")) {
+      this.next();
+      const s2 = this.peek();
+      if (s2.type === TokenType.SYMBOL && isCloseDelimiter(s2.value)) {
+        rightDelim = "\\right" + s2.value;
+        this.next();
+      }
+    }
+    if (leftDelim === "" && rightDelim === "") return content;
+    return this.maybeParseSubSup(this.flattenBracket({ type: "Bracket", leftDelim, rightDelim, content }));
   }
 
-  flattenBracket(br) { if(br.content.type==="Bracket"){const inner=br.content;if(br.leftDelim===inner.leftDelim&&br.rightDelim===inner.rightDelim&&(br.leftDelim==="{"||br.leftDelim===""))return inner;} return br; }
-  removeBracket(br) { if(br.leftDelim==="{"||br.leftDelim==="") return br.content; return br; }
+  flattenBracket(br) {
+    if (br.content.type === "Bracket") {
+      const inner = br.content;
+      if (br.leftDelim === inner.leftDelim && br.rightDelim === inner.rightDelim && (br.leftDelim === "{" || br.leftDelim === "")) return inner;
+    }
+    return br;
+  }
+
+  removeBracket(br) {
+    if (br.leftDelim === "{" || br.leftDelim === "") return br.content;
+    return br;
+  }
+
+  parseGroupExpression() {
+    if (!this.matchSymbol("{")) return this.parseFactor();
+    this.next();
+    const expr = this.parseExpression();
+    if (this.matchSymbol("}")) this.next();
+    return expr;
+  }
 
   parseBeginEnv() {
-    if(!this.matchSymbol("{")) return {type:"Literal",value:"\\begin"};
-    this.next(); const envTok=this.peek(); let envName="";
-    if(envTok.type===TokenType.IDENT||envTok.type===TokenType.KEYWORD){envName=envTok.value.toLowerCase();this.next();}
-    if(this.matchSymbol("}")) this.next();
-    return this.parseBeginEnvContent(envName);
-  }
-
-  parseBeginEnvContent(envName) {
-    const rows=[]; let currentRow=[];
-    while(!this.isEndEnv(envName)) {
-      const tk=this.peek(); if(tk.type===TokenType.EOF) break;
-      if(tk.type===TokenType.SYMBOL&&tk.value==="\\\\") { this.next(); if(currentRow.length>0||rows.length===0) rows.push(currentRow); currentRow=[]; }
-      else if(tk.type===TokenType.SYMBOL&&tk.value==="&") { this.next(); }
-      else { const f=this.parseFactor(); if(f.type!=="Literal"||f.value!=="") currentRow.push(f); }
+    if (!this.matchSymbol("{")) return { type: "Literal", value: "begin" };
+    this.next();
+    const envTok = this.peek();
+    let envName = "";
+    if (envTok.type === TokenType.IDENT || envTok.type === TokenType.KEYWORD) {
+      envName = envTok.value.toLowerCase();
+      this.next();
     }
-    if(currentRow.length>0) rows.push(currentRow);
+    if (this.matchSymbol("}")) this.next();
+
+    let alignSpec = null;
+    if (envName === "array" && this.matchSymbol("{")) {
+      this.next();
+      let raw = "";
+      while (!this.matchSymbol("}") && this.peek().type !== TokenType.EOF) raw += this.next().value;
+      if (this.matchSymbol("}")) this.next();
+      alignSpec = raw;
+    }
+
+    const { rows, consumed } = splitLatexRows(this.tokens.slice(this.pos), envName);
+    this.pos += consumed;
     this.parseEndEnv(envName);
-    return this.maybeParseSubSup({type:"BeginEnv",envName,rows});
+    return this.maybeParseSubSup({ type: "BeginEnv", envName, rows, alignSpec });
   }
 
-  isEndEnv(envName) {
-    if(this.matchKeyword("end")) { const s1=this.tokens[this.pos+1]; if(s1&&s1.type===TokenType.SYMBOL&&s1.value==="{"){const s2=this.tokens[this.pos+2];if(s2&&(s2.type===TokenType.IDENT||s2.type===TokenType.KEYWORD)&&s2.value.toLowerCase()===envName) return true;} }
-    return false;
+  parseEndEnv(envName) {
+    if (!this.matchKeyword("end")) return;
+    this.next();
+    if (!this.matchSymbol("{")) return;
+    this.next();
+    const n = this.peek();
+    if ((n.type === TokenType.IDENT || n.type === TokenType.KEYWORD) && n.value.toLowerCase() === envName) this.next();
+    if (this.matchSymbol("}")) this.next();
   }
-  parseEndEnv(envName) { if(this.matchKeyword("end")){this.next();if(this.matchSymbol("{")){this.next();const n=this.peek();if(n.type===TokenType.IDENT||n.type===TokenType.KEYWORD)this.next();if(this.matchSymbol("}"))this.next();}} }
-
-  parseIntegralSubSup(iNode) { if(this.matchSymbol("_")){this.next();iNode.lower=this.parseSubOrSupContent();} if(this.matchSymbol("^")){this.next();iNode.upper=this.parseSubOrSupContent();} }
-  parseSumSubSup(sNode) { if(this.matchSymbol("_")){this.next();sNode.lower=this.parseSubOrSupContent();} if(this.matchSymbol("^")){this.next();sNode.upper=this.parseSubOrSupContent();} }
 
   parseSubOrSupContent() {
-    if(this.matchSymbol("{")) { this.next(); const expr=this.parseExpression(); if(this.matchSymbol("}"))this.next(); return expr; }
-    const t=this.peek(); if(t.type!==TokenType.EOF){this.next();return{type:"Literal",value:t.value};} return{type:"Literal",value:""};
+    if (this.matchSymbol("{")) {
+      this.next();
+      const expr = this.parseExpression();
+      if (this.matchSymbol("}")) this.next();
+      return expr;
+    }
+    const t = this.peek();
+    if (t.type !== TokenType.EOF) {
+      this.next();
+      return { type: "Literal", value: t.value };
+    }
+    return { type: "Literal", value: "" };
   }
 
   maybeParseSubSup(base) {
-    let node=base;
-    while(true) {
-      const t=this.peek();
-      if(t.type===TokenType.SYMBOL&&t.value==="^") { this.next(); const exp=this.parseSubOrSupContent(); node={type:"Superscript",base:node,exponent:exp}; }
-      else if(t.type===TokenType.SYMBOL&&t.value==="_") { this.next(); const sub=this.parseSubOrSupContent(); node={type:"Subscript",base:node,sub}; }
-      else break;
+    let node = base;
+    while (true) {
+      if (this.matchSymbol("^")) {
+        this.next();
+        node = { type: "Superscript", base: node, exponent: this.parseSubOrSupContent() };
+        continue;
+      }
+      if (this.matchSymbol("_")) {
+        this.next();
+        node = { type: "Subscript", base: node, sub: this.parseSubOrSupContent() };
+        continue;
+      }
+      break;
     }
     return node;
   }
 }
 
-// ── AST -> LaTeX ──
-function unifyCaseRow(strs) { if(strs.length===3&&strs[1]==="=") return [strs[0]+" = "+strs[2]]; return strs; }
+function envNameToLatex(node) {
+  if (node.envName === "dmatrix") return { envName: "vmatrix" };
+  if (node.envName === "pile") return { envName: "array", alignSpec: "c" };
+  if (node.envName === "lpile") return { envName: "array", alignSpec: "l" };
+  if (node.envName === "rpile") return { envName: "array", alignSpec: "r" };
+  if (node.envName === "eqalign") return { envName: "aligned" };
+  return { envName: node.envName, alignSpec: node.alignSpec || node.columnAlignSpec || null };
+}
+
+function envNameToHwp(node) {
+  if (node.envName === "vmatrix") return { envName: "dmatrix" };
+  if (node.envName === "aligned") return { envName: "eqalign" };
+  if (node.envName === "array") {
+    const cleanAlign = sanitizeArrayAlignSpec(node.alignSpec);
+    if (cleanAlign === "l") return { envName: "lpile" };
+    if (cleanAlign === "r") return { envName: "rpile" };
+    if (cleanAlign === "c") return { envName: "pile" };
+    if (cleanAlign && cleanAlign.length > 1) return { envName: "matrix", columnAlignSpec: cleanAlign };
+    return { envName: "eqalign" };
+  }
+  return { envName: node.envName, alignSpec: node.alignSpec || null, columnAlignSpec: node.columnAlignSpec || null };
+}
 
 function toLatex(node) {
-  switch(node.type) {
-    case "Literal": return node.value;
+  switch (node.type) {
+    case "Literal":
+      return literalToLatex(node.value);
+    case "FunctionName":
+      return functionNameToLatex(node.value);
+    case "Text":
+      return `\\text{${node.value}}`;
+    case "Styled":
+      return `${STYLE_TO_LATEX[node.style] || "\\mathrm"}{${toLatex(node.child)}}`;
+    case "UnaryOp":
+      return `${node.operator}${toLatex(node.child)}`;
+    case "Negation":
+      return `\\not${toLatex(node.child)}`;
+    case "SizedLiteral":
+      return `\\${node.size}${toLatex(node.child)}`;
+    case "Choose":
+      return `\\binom{${toLatex(node.total)}}{${toLatex(node.choose)}}`;
+    case "Relation": {
+      const arrow = operatorToLatex(node.arrow);
+      const decorated = node.below
+        ? `\\overset{${toLatex(node.above)}}{\\underset{${toLatex(node.below)}}{${arrow}}}`
+        : `\\overset{${toLatex(node.above)}}{${arrow}}`;
+      return `${toLatex(node.left)} ${decorated} ${toLatex(node.right)}`;
+    }
     case "BinaryOp": {
-      const l=toLatex(node.left), r=toLatex(node.right);
-      if(node.operator==="apply"||node.operator==="") return `${l}${r}`;
-      if(node.operator==="times") return `${l} \\times ${r}`;
-      return `${l} ${node.operator} ${r}`;
+      const left = toLatex(node.left);
+      const right = toLatex(node.right);
+      if (node.operator === "apply") return `${left}${right}`;
+      if (node.operator === "") return formatImplicitJoin(node, left, right);
+      if (node.operator === "times") return `${left} \\times ${right}`;
+      return `${left} ${operatorToLatex(node.operator)} ${right}`;
     }
-    case "Fraction": return node.withBar ? `\\frac{${toLatex(node.numerator)}}{${toLatex(node.denominator)}}` : `\\begin{array}{c} ${toLatex(node.numerator)} \\atop ${toLatex(node.denominator)} \\end{array}`;
-    case "Root": return `\\sqrt{${toLatex(node.radicand)}}`;
-    case "Superscript": return `${toLatex(node.base)}^{${toLatex(node.exponent)}}`;
-    case "Subscript": return `${toLatex(node.base)}_{${toLatex(node.sub)}}`;
-    case "Integral": { const cmd=node.variant==="int"?"\\int":"\\oint"; let lo="",up=""; if(node.lower)lo=`_{${toLatex(node.lower)}}`; if(node.upper)up=`^{${toLatex(node.upper)}}`; const body=node.body?` {${toLatex(node.body)}}`:""; return `${cmd}${lo}${up}${body}`; }
-    case "Summation": { let lo="",up=""; if(node.lower)lo=`_{${toLatex(node.lower)}}`; if(node.upper)up=`^{${toLatex(node.upper)}}`; const body=node.body?` {${toLatex(node.body)}}`:""; return `\\sum${lo}${up}${body}`; }
-    case "Decorated": {
-      const c=toLatex(node.child);
-      const map={acute:"\\acute",grave:"\\grave",dot:"\\dot",ddot:"\\ddot",bar:"\\bar",vec:"\\vec",hat:"\\hat",tilde:"\\tilde"};
-      return (map[node.decoType]||"\\"+node.decoType)+`{${c}}`;
+    case "Fraction":
+      return node.withBar
+        ? `\\frac{${toLatex(node.numerator)}}{${toLatex(node.denominator)}}`
+        : `{${toLatex(node.numerator)} \\atop ${toLatex(node.denominator)}}`;
+    case "Root":
+      return `\\sqrt{${toLatex(node.radicand)}}`;
+    case "Superscript":
+      return `${toLatex(node.base)}^{${toLatex(node.exponent)}}`;
+    case "Subscript":
+      return `${toLatex(node.base)}_{${toLatex(node.sub)}}`;
+    case "Integral": {
+      let out = node.variant === "int" ? "\\int" : "\\oint";
+      if (node.lower) out += `_{${toLatex(node.lower)}}`;
+      if (node.upper) out += `^{${toLatex(node.upper)}}`;
+      if (node.body) out += ` ${toLatex(node.body)}`;
+      return out;
     }
-    case "BeginEnv": { const rowStrs=node.rows.map(r=>{const colStr=unifyCaseRow(r.map(e=>toLatex(e)));return colStr.join(" & ");}).join(" \\\\ "); return `\\begin{${node.envName}} ${rowStrs} \\end{${node.envName}}`; }
+    case "Summation": {
+      let out = "\\sum";
+      if (node.lower) out += `_{${toLatex(node.lower)}}`;
+      if (node.upper) out += `^{${toLatex(node.upper)}}`;
+      if (node.body) out += ` ${toLatex(node.body)}`;
+      return out;
+    }
+    case "Decorated":
+      return `${DECORATION_TO_LATEX[node.decoType] || ("\\" + node.decoType)}{${toLatex(node.child)}}`;
+    case "BeginEnv": {
+      const mapped = envNameToLatex(node);
+      const rowStr = renderLatexEnvRows(node.rows);
+      const matrixAlign = sanitizeArrayAlignSpec(node.columnAlignSpec || mapped.alignSpec);
+      if (isHwpMatrixEnvName(node.envName) && matrixAlign && /[^c]/.test(matrixAlign)) {
+        const delimiters = matrixDelimitersToLatex(node.envName);
+        const arrayLatex = `\\begin{array}{${matrixAlign}} ${rowStr} \\end{array}`;
+        return delimiters.left ? `${delimiters.left} ${arrayLatex} ${delimiters.right}` : arrayLatex;
+      }
+      if (mapped.envName === "array") return `\\begin{array}{${sanitizeArrayAlignSpec(mapped.alignSpec) || "c"}} ${rowStr} \\end{array}`;
+      return `\\begin{${mapped.envName}} ${rowStr} \\end{${mapped.envName}}`;
+    }
     case "Bracket": {
-      const content=toLatex(node.content);
-      if(node.leftDelim.startsWith("LEFT")) { const c=node.leftDelim.slice(4); let left=`\\left${c}`,right=""; if(node.rightDelim.startsWith("RIGHT")){const c2=node.rightDelim.slice(5);right=`\\right${c2}`;} return ` ${left} ${content} ${right}`; }
-      if(node.leftDelim.startsWith("\\left")) return ` ${node.leftDelim} ${content} ${node.rightDelim}`;
+      const content = toLatex(node.content);
+      if (node.leftDelim.startsWith("LEFT")) {
+        const left = `\\left${node.leftDelim.slice(4)}`;
+        const right = node.rightDelim.startsWith("RIGHT") ? `\\right${node.rightDelim.slice(5)}` : "";
+        return `${left} ${content} ${right}`;
+      }
+      if (node.leftDelim.startsWith("\\left")) return `${node.leftDelim} ${content} ${node.rightDelim}`;
       return `${node.leftDelim}${content}${node.rightDelim}`;
     }
-    default: return "";
+    default:
+      return "";
   }
 }
 
-// ── AST -> HWP Eqn ──
-function unifyCaseRowHwp(strs) { if(strs.length===3&&strs[1]==="=") return [strs[0]+" = "+strs[2]]; return strs; }
-
-const latexToHwpSymbols = {
-  'to':'->', 'rightarrow':'->', 'leftarrow':'<-',
-  'Rightarrow':'=>', 'Leftarrow':'<=',
-  'infty':'inf', 'infinity':'inf',
-  'leq':'<=', 'le':'<=', 'geq':'>=', 'ge':'>=', 'neq':'<>', 'ne':'<>',
-  'cdot':'cdot', 'cdots':'cdots', 'ldots':'...', 'dots':'...',
-  'pm':'+-', 'mp':'-+',
-  'alpha':'alpha','beta':'beta','gamma':'gamma','delta':'delta',
-  'epsilon':'epsilon','zeta':'zeta','eta':'eta','theta':'theta',
-  'lambda':'lambda','mu':'mu','pi':'pi','sigma':'sigma',
-  'phi':'phi','omega':'omega',
-  'Alpha':'ALPHA','Beta':'BETA','Gamma':'GAMMA','Delta':'DELTA',
-  'Theta':'THETA','Lambda':'LAMBDA','Pi':'PI','Sigma':'SIGMA',
-  'Phi':'PHI','Omega':'OMEGA',
-};
-
 function toHwpEqn(node) {
-  switch(node.type) {
-    case "Literal": return latexToHwpSymbols[node.value] || node.value;
-    case "BinaryOp": {
-      const l=toHwpEqn(node.left), r=toHwpEqn(node.right);
-      if(node.operator==="apply"||node.operator==="") return `${l}${r}`;
-      if(node.operator==="times") return `${l} times ${r}`;
-      return `${l} ${node.operator} ${r}`;
+  switch (node.type) {
+    case "Literal":
+      return literalToHwp(node.value);
+    case "FunctionName":
+      return node.value;
+    case "Text":
+      return `"${node.value}"`;
+    case "Styled":
+      return `${node.style} ${wrapStyledChildForHwp(node.child)}`;
+    case "UnaryOp":
+      return `${node.operator}${toHwpEqn(node.child)}`;
+    case "Negation":
+      return `not ${toHwpEqn(node.child)}`;
+    case "SizedLiteral":
+      return `bigg ${toHwpEqn(node.child)}`;
+    case "Choose":
+      return `${toHwpEqn(node.total)} choose ${toHwpEqn(node.choose)}`;
+    case "Relation": {
+      const keyword = node.below ? "REL" : "BUILDREL";
+      let out = `${toHwpEqn(node.left)} ${keyword} ${literalToHwp(node.arrow)} {${toHwpEqn(node.above)}}`;
+      if (node.below) out += ` {${toHwpEqn(node.below)}}`;
+      out += ` ${toHwpEqn(node.right)}`;
+      return out;
     }
-    case "Fraction": return node.withBar ? `{${toHwpEqn(node.numerator)}} over {${toHwpEqn(node.denominator)}}` : `{${toHwpEqn(node.numerator)}} atop {${toHwpEqn(node.denominator)}}`;
-    case "Root": return `sqrt{${toHwpEqn(node.radicand)}}`;
-    case "Superscript": return `${toHwpEqn(node.base)}^{${toHwpEqn(node.exponent)}}`;
-    case "Subscript": return `${toHwpEqn(node.base)}_{${toHwpEqn(node.sub)}}`;
-    case "Integral": { let out=node.variant==="int"?"int":"oint"; if(node.lower) out+=`_{${toHwpEqn(node.lower)}}`; if(node.upper) out+=`^{${toHwpEqn(node.upper)}}`; if(node.body) out+=` { { ${toHwpEqn(node.body)} } }`; return out; }
-    case "Summation": { let out="sum"; if(node.lower) out+=`_{${toHwpEqn(node.lower)}}`; if(node.upper) out+=`^{${toHwpEqn(node.upper)}}`; if(node.body) out+=` { ${toHwpEqn(node.body)} }`; return out; }
-    case "Decorated": return `${node.decoType} ${toHwpEqn(node.child)}`;
-    case "BeginEnv": { const rowStrs=node.rows.map(r=>{const colStr=unifyCaseRowHwp(r.map(e=>toHwpEqn(e)));return colStr.join(" & ");}).join(" # "); return `${node.envName}{${rowStrs}}`; }
+    case "BinaryOp": {
+      const left = toHwpEqn(node.left);
+      const right = toHwpEqn(node.right);
+      if (node.operator === "apply") return `${left}${right}`;
+      if (node.operator === "") return formatImplicitJoin(node, left, right);
+      if (node.operator === "times") return `${left} times ${right}`;
+      return `${left} ${node.operator} ${right}`;
+    }
+    case "Fraction":
+      return node.withBar
+        ? `{${toHwpEqn(node.numerator)}} over {${toHwpEqn(node.denominator)}}`
+        : `{${toHwpEqn(node.numerator)}} atop {${toHwpEqn(node.denominator)}}`;
+    case "Root":
+      return `sqrt{${toHwpEqn(node.radicand)}}`;
+    case "Superscript":
+      return `${toHwpEqn(node.base)}^{${toHwpEqn(node.exponent)}}`;
+    case "Subscript":
+      return `${toHwpEqn(node.base)}_{${toHwpEqn(node.sub)}}`;
+    case "Integral": {
+      let out = node.variant === "int" ? "int" : "oint";
+      if (node.lower) out += `_{${toHwpEqn(node.lower)}}`;
+      if (node.upper) out += `^{${toHwpEqn(node.upper)}}`;
+      if (node.body) out += ` ${toHwpEqn(node.body)}`;
+      return out;
+    }
+    case "Summation": {
+      let out = "sum";
+      if (node.lower) out += `_{${toHwpEqn(node.lower)}}`;
+      if (node.upper) out += `^{${toHwpEqn(node.upper)}}`;
+      if (node.body) out += ` ${toHwpEqn(node.body)}`;
+      return out;
+    }
+    case "Decorated":
+      return `${node.decoType} ${toHwpEqn(node.child)}`;
+    case "BeginEnv": {
+      const mapped = envNameToHwp(node);
+      if (mapped.columnAlignSpec && isHwpMatrixEnvName(mapped.envName)) {
+        return formatHwpMatrixColumnMode(mapped.envName, node.rows, mapped.columnAlignSpec);
+      }
+      const rowStr = node.rows.map(row => row.map(cell => toHwpEqn(cell)).join(" & ")).join(" # ");
+      return `${mapped.envName}{${rowStr}}`;
+    }
     case "Bracket": {
-      const content=toHwpEqn(node.content);
-      if(node.leftDelim.startsWith("\\left")) { const c=node.leftDelim.slice(5); let left=`LEFT${c}`,right=""; if(node.rightDelim.startsWith("\\right")){const c2=node.rightDelim.slice(6);right=`RIGHT${c2}`;} return ` ${left} ${content} ${right}`; }
-      if(node.leftDelim==="LEFT(") return ` ${node.leftDelim} ${content} ${node.rightDelim}`;
+      if (node.content.type === "BeginEnv" && node.content.envName === "array") {
+        const matrixAlign = sanitizeArrayAlignSpec(node.content.alignSpec);
+        if (matrixAlign && matrixAlign.length > 1) {
+          const envName = bracketDelimitersToHwpMatrixEnv(node.leftDelim, node.rightDelim);
+          return formatHwpMatrixColumnMode(envName, node.content.rows, matrixAlign);
+        }
+      }
+      const content = toHwpEqn(node.content);
+      if (node.leftDelim.startsWith("\\left")) {
+        const left = `LEFT${node.leftDelim.slice(5)}`;
+        const right = node.rightDelim.startsWith("\\right") ? `RIGHT${node.rightDelim.slice(6)}` : "";
+        return `${left} ${content} ${right}`;
+      }
       return `${node.leftDelim}${content}${node.rightDelim}`;
     }
-    default: return "";
+    default:
+      return "";
   }
 }
 
@@ -1102,6 +2226,7 @@ const examples = {
     { label: 'sqrt {a + b}', value: 'sqrt {a + b}' },
     { label: 'sum_1^n {k^2}', value: 'sum_1^n {k^2}' },
     { label: 'pmatrix{1 & 2 # 3 & 4}', value: 'pmatrix{1 & 2 # 3 & 4}' },
+    { label: 'bmatrix{lcol{a # c} rcol{b # d}}', value: 'bmatrix{lcol{a # c} rcol{b # d}}' },
   ],
   latex2hwp: [
     { label: 'x^{2} + y^{2}', value: 'x^{2} + y^{2}' },
@@ -1110,6 +2235,7 @@ const examples = {
     { label: '\\sqrt{a + b}', value: '\\sqrt{a + b}' },
     { label: '\\sum_{1}^{n} {k^2}', value: '\\sum_{1}^{n} {k^2}' },
     { label: '\\begin{cases} x=1 \\\\ y=2 \\end{cases}', value: '\\begin{cases} x=1 \\\\ y=2 \\end{cases}' },
+    { label: '\\left[\\begin{array}{lr} a & b \\\\ c & d \\end{array}\\right]', value: '\\left[\\begin{array}{lr} a & b \\\\ c & d \\end{array}\\right]' },
   ]
 };
 
