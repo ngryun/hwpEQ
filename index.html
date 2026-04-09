@@ -138,13 +138,50 @@
     border-color: var(--pink);
     box-shadow: 0 4px 20px var(--pink-glow);
   }
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
   .panel-label {
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 1.5px;
     color: var(--text-dim);
-    margin-bottom: 12px;
+  }
+  .copy-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface2);
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.25s;
+  }
+  .copy-btn:hover {
+    border-color: var(--pink);
+    color: var(--pink);
+    background: #fef5f7;
+  }
+  .copy-btn.copied {
+    border-color: #86c68a;
+    color: #5a9e5e;
+    background: #f0faf0;
+  }
+  .copy-btn svg {
+    width: 13px; height: 13px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .panel textarea {
     flex: 1;
@@ -299,7 +336,13 @@
 
   <div class="converter">
     <div class="panel" id="input-panel">
-      <div class="panel-label" id="input-label">HWP Equation</div>
+      <div class="panel-header">
+        <div class="panel-label" id="input-label">HWP Equation</div>
+        <button class="copy-btn" id="copy-input" title="Copy">
+          <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          <span>Copy</span>
+        </button>
+      </div>
       <textarea id="input-area" placeholder="x times 3 + y^2 over z" spellcheck="false"></textarea>
     </div>
     <div class="arrow-col">
@@ -308,7 +351,13 @@
       </button>
     </div>
     <div class="panel" id="output-panel">
-      <div class="panel-label" id="output-label">LaTeX</div>
+      <div class="panel-header">
+        <div class="panel-label" id="output-label">LaTeX</div>
+        <button class="copy-btn" id="copy-output" title="Copy">
+          <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          <span>Copy</span>
+        </button>
+      </div>
       <textarea id="output-area" readonly placeholder="Result will appear here..." spellcheck="false"></textarea>
     </div>
   </div>
@@ -563,11 +612,19 @@ function tokenizeHwpEqn(input) {
   while (i < input.length) {
     const ch = input[i];
     if (/\s/.test(ch)) { tokens.push({type:TokenType.SPACE,value:ch}); i++; continue; }
+    if (isDigit(ch)) {
+      let num=ch; i++;
+      while(i<input.length&&isDigit(input[i])){num+=input[i];i++;}
+      if(i<input.length&&input[i]==='.'&&i+1<input.length&&isDigit(input[i+1])){
+        num+=input[i];i++;
+        while(i<input.length&&isDigit(input[i])){num+=input[i];i++;}
+      }
+      tokens.push({type:TokenType.NUMBER,value:num}); continue;
+    }
     if ("^_{}()#&~'/,.-+=*\\[]".includes(ch)) {
       if (ch==='\\' && i+1<input.length && input[i+1]==='\\') { tokens.push({type:TokenType.SYMBOL,value:"\\\\"}); i+=2; continue; }
       tokens.push({type:TokenType.SYMBOL,value:ch}); i++; continue;
     }
-    if (isDigit(ch)) { let num=ch; i++; while(i<input.length&&isDigit(input[i])){num+=input[i];i++;} tokens.push({type:TokenType.NUMBER,value:num}); continue; }
     if (isAlpha(ch)) {
       let ident=ch; i++; while(i<input.length&&isAlpha(input[i])){ident+=input[i];i++;}
       const up=ident.toUpperCase();
@@ -589,6 +646,15 @@ function tokenizeLatex(input) {
   while (i < input.length) {
     const ch = input[i];
     if (/\s/.test(ch)) { tokens.push({type:TokenType.SPACE,value:ch}); i++; continue; }
+    if (isDigit(ch)) {
+      let num=ch; i++;
+      while(i<input.length&&isDigit(input[i])){num+=input[i];i++;}
+      if(i<input.length&&input[i]==='.'&&i+1<input.length&&isDigit(input[i+1])){
+        num+=input[i];i++;
+        while(i<input.length&&isDigit(input[i])){num+=input[i];i++;}
+      }
+      tokens.push({type:TokenType.NUMBER,value:num}); continue;
+    }
     if ("^_{}()#&~'/,.-+*=|[]\\".includes(ch)) {
       if (ch==='\\'&&i+1<input.length&&input[i+1]==='\\') { tokens.push({type:TokenType.SYMBOL,value:"\\\\"}); i+=2; continue; }
       if (ch==='\\') {
@@ -601,7 +667,6 @@ function tokenizeLatex(input) {
       } else { tokens.push({type:TokenType.SYMBOL,value:ch}); i++; }
       continue;
     }
-    if (isDigit(ch)) { let num=ch; i++; while(i<input.length&&isDigit(input[i])){num+=input[i];i++;} tokens.push({type:TokenType.NUMBER,value:num}); continue; }
     if (isAlpha(ch)) { let ident=ch; i++; while(i<input.length&&isAlpha(input[i])){ident+=input[i];i++;} tokens.push({type:TokenType.IDENT,value:ident}); continue; }
     tokens.push({type:TokenType.UNKNOWN,value:ch}); i++;
   }
@@ -620,11 +685,19 @@ class HwpParser {
 
   parseExpression() { return this.parseExpr(); }
 
+  canStartFactor() {
+    const t=this.peek();
+    if(t.type===TokenType.NUMBER||t.type===TokenType.IDENT) return true;
+    if(t.type===TokenType.KEYWORD){const kw=t.value.toUpperCase();return kw!=="TIMES"&&kw!=="OVER"&&kw!=="ATOP"&&kw!=="RIGHT";}
+    if(t.type===TokenType.SYMBOL&&"([{".includes(t.value)) return true;
+    return false;
+  }
+
   parseExpr() {
     let node = this.parseTerm();
     while(true) {
       const t=this.peek();
-      if(t.type===TokenType.SYMBOL&&(t.value==='+'||t.value==='-')) { this.next(); const r=this.parseTerm(); node={type:"BinaryOp",operator:t.value,left:node,right:r}; }
+      if(t.type===TokenType.SYMBOL&&(t.value==='+'||t.value==='-'||t.value==='=')) { this.next(); const r=this.parseTerm(); node={type:"BinaryOp",operator:t.value,left:node,right:r}; }
       else break;
     }
     return node;
@@ -638,8 +711,10 @@ class HwpParser {
         const kw=t.value.toUpperCase();
         if(kw==="TIMES") { this.next(); const r=this.parseFactor(); node={type:"BinaryOp",operator:"times",left:node,right:r}; }
         else if(kw==="OVER"||kw==="ATOP") { this.next(); const d=this.parseFactor(); node={type:"Fraction",numerator:node,denominator:d,withBar:kw==="OVER"}; }
+        else if(this.canStartFactor()) { const r=this.parseFactor(); node={type:"BinaryOp",operator:"",left:node,right:r}; }
         else break;
       } else if(t.type===TokenType.SYMBOL&&t.value==="/") { this.next(); const r=this.parseFactor(); node={type:"BinaryOp",operator:"/",left:node,right:r}; }
+      else if(this.canStartFactor()) { const r=this.parseFactor(); node={type:"BinaryOp",operator:"",left:node,right:r}; }
       else break;
     }
     return node;
@@ -763,13 +838,21 @@ class LatexParser {
   matchSymbol(v) { const t=this.peek(); return t.type===TokenType.SYMBOL&&t.value===v; }
   matchKeyword(k) { const t=this.peek(); return t.type===TokenType.KEYWORD&&t.value.toLowerCase()===k.toLowerCase(); }
 
+  canStartFactor() {
+    const t=this.peek();
+    if(t.type===TokenType.NUMBER||t.type===TokenType.IDENT) return true;
+    if(t.type===TokenType.KEYWORD){const kw=t.value.toLowerCase();return kw!=="times"&&kw!=="right"&&kw!=="end";}
+    if(t.type===TokenType.SYMBOL&&"([{".includes(t.value)) return true;
+    return false;
+  }
+
   parseExpression() { return this.parseExpr(); }
 
   parseExpr() {
     let node=this.parseTerm();
     while(true) {
       const t=this.peek();
-      if(t.type===TokenType.SYMBOL&&(t.value==='+'||t.value==='-')) { this.next(); const r=this.parseTerm(); node={type:"BinaryOp",operator:t.value,left:node,right:r}; }
+      if(t.type===TokenType.SYMBOL&&(t.value==='+'||t.value==='-'||t.value==='=')) { this.next(); const r=this.parseTerm(); node={type:"BinaryOp",operator:t.value,left:node,right:r}; }
       else break;
     }
     return node;
@@ -781,6 +864,7 @@ class LatexParser {
       const t=this.peek();
       if(t.type===TokenType.KEYWORD&&t.value==="times") { this.next(); const r=this.parseFactor(); node={type:"BinaryOp",operator:"times",left:node,right:r}; }
       else if(t.type===TokenType.SYMBOL&&t.value==="/") { this.next(); const r=this.parseFactor(); node={type:"BinaryOp",operator:"/",left:node,right:r}; }
+      else if(this.canStartFactor()) { const r=this.parseFactor(); node={type:"BinaryOp",operator:"",left:node,right:r}; }
       else break;
     }
     return node;
@@ -914,7 +998,7 @@ function toLatex(node) {
     case "Literal": return node.value;
     case "BinaryOp": {
       const l=toLatex(node.left), r=toLatex(node.right);
-      if(node.operator==="apply") return l+r;
+      if(node.operator==="apply"||node.operator==="") return `${l}${r}`;
       if(node.operator==="times") return `${l} \\times ${r}`;
       return `${l} ${node.operator} ${r}`;
     }
@@ -943,19 +1027,35 @@ function toLatex(node) {
 // ── AST -> HWP Eqn ──
 function unifyCaseRowHwp(strs) { if(strs.length===3&&strs[1]==="=") return [strs[0]+" = "+strs[2]]; return strs; }
 
+const latexToHwpSymbols = {
+  'to':'->', 'rightarrow':'->', 'leftarrow':'<-',
+  'Rightarrow':'=>', 'Leftarrow':'<=',
+  'infty':'inf', 'infinity':'inf',
+  'leq':'<=', 'le':'<=', 'geq':'>=', 'ge':'>=', 'neq':'<>', 'ne':'<>',
+  'cdot':'cdot', 'cdots':'cdots', 'ldots':'...', 'dots':'...',
+  'pm':'+-', 'mp':'-+',
+  'alpha':'alpha','beta':'beta','gamma':'gamma','delta':'delta',
+  'epsilon':'epsilon','zeta':'zeta','eta':'eta','theta':'theta',
+  'lambda':'lambda','mu':'mu','pi':'pi','sigma':'sigma',
+  'phi':'phi','omega':'omega',
+  'Alpha':'ALPHA','Beta':'BETA','Gamma':'GAMMA','Delta':'DELTA',
+  'Theta':'THETA','Lambda':'LAMBDA','Pi':'PI','Sigma':'SIGMA',
+  'Phi':'PHI','Omega':'OMEGA',
+};
+
 function toHwpEqn(node) {
   switch(node.type) {
-    case "Literal": return node.value;
+    case "Literal": return latexToHwpSymbols[node.value] || node.value;
     case "BinaryOp": {
       const l=toHwpEqn(node.left), r=toHwpEqn(node.right);
-      if(node.operator==="apply") return l+r;
+      if(node.operator==="apply"||node.operator==="") return `${l}${r}`;
       if(node.operator==="times") return `${l} times ${r}`;
       return `${l} ${node.operator} ${r}`;
     }
-    case "Fraction": return node.withBar ? `${toHwpEqn(node.numerator)} over ${toHwpEqn(node.denominator)}` : `${toHwpEqn(node.numerator)} atop ${toHwpEqn(node.denominator)}`;
-    case "Root": return `sqrt ${toHwpEqn(node.radicand)}`;
-    case "Superscript": return `${toHwpEqn(node.base)}^${toHwpEqn(node.exponent)}`;
-    case "Subscript": return `${toHwpEqn(node.base)}_${toHwpEqn(node.sub)}`;
+    case "Fraction": return node.withBar ? `{${toHwpEqn(node.numerator)}} over {${toHwpEqn(node.denominator)}}` : `{${toHwpEqn(node.numerator)}} atop {${toHwpEqn(node.denominator)}}`;
+    case "Root": return `sqrt{${toHwpEqn(node.radicand)}}`;
+    case "Superscript": return `${toHwpEqn(node.base)}^{${toHwpEqn(node.exponent)}}`;
+    case "Subscript": return `${toHwpEqn(node.base)}_{${toHwpEqn(node.sub)}}`;
     case "Integral": { let out=node.variant==="int"?"int":"oint"; if(node.lower) out+=`_${toHwpEqn(node.lower)}`; if(node.upper) out+=`^${toHwpEqn(node.upper)}`; if(node.body) out+=` { { ${toHwpEqn(node.body)} } }`; return out; }
     case "Summation": { let out="sum"; if(node.lower) out+=`_${toHwpEqn(node.lower)}`; if(node.upper) out+=`^${toHwpEqn(node.upper)}`; if(node.body) out+=` { ${toHwpEqn(node.body)} }`; return out; }
     case "Decorated": return `${node.decoType} ${toHwpEqn(node.child)}`;
@@ -1050,6 +1150,24 @@ function convert() {
     preview.innerHTML = `<span class="preview-error">${e.message}</span>`;
   }
 }
+
+function handleCopy(btn, textarea) {
+  const text = textarea.value.trim();
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.classList.add('copied');
+    btn.querySelector('span').textContent = 'Copied!';
+    btn.querySelector('svg').innerHTML = '<polyline points="20 6 9 17 4 12"/>';
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      btn.querySelector('span').textContent = 'Copy';
+      btn.querySelector('svg').innerHTML = '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>';
+    }, 1500);
+  });
+}
+
+document.getElementById('copy-input').addEventListener('click', function() { handleCopy(this, inputArea); });
+document.getElementById('copy-output').addEventListener('click', function() { handleCopy(this, outputArea); });
 
 modeBtns.forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
 convertBtn.addEventListener('click', convert);
