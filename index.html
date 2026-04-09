@@ -730,15 +730,15 @@ class HwpParser {
       if(kw==="SQRT") { let rad=this.parseFactor(); if(rad.type==="Bracket") rad=this.removeBracket(rad); return {type:"Root",radicand:rad}; }
       if(kw==="INT"||kw==="OINT") {
         const iNode={type:"Integral",variant:kw==="INT"?"int":"oint"};
-        if(this.matchSymbol("_")){this.next();iNode.lower=this.parseSingleFactorNoSubSup();}
-        if(this.matchSymbol("^")){this.next();iNode.upper=this.parseSingleFactorNoSubSup();}
+        if(this.matchSymbol("_")){this.next();iNode.lower=this.parseSubOrSupContent();}
+        if(this.matchSymbol("^")){this.next();iNode.upper=this.parseSubOrSupContent();}
         iNode.body=this.parseFactor(); if(iNode.body.type==="Bracket") iNode.body=this.removeBracket(iNode.body);
         return iNode;
       }
       if(kw==="SUM") {
         const sNode={type:"Summation"};
-        if(this.matchSymbol("_")){this.next();sNode.lower=this.parseSingleFactorNoSubSup();}
-        if(this.matchSymbol("^")){this.next();sNode.upper=this.parseSingleFactorNoSubSup();}
+        if(this.matchSymbol("_")){this.next();sNode.lower=this.parseSubOrSupContent();}
+        if(this.matchSymbol("^")){this.next();sNode.upper=this.parseSubOrSupContent();}
         sNode.body=this.parseFactor(); if(sNode.body&&sNode.body.type==="Bracket") sNode.body=this.removeBracket(sNode.body);
         return sNode;
       }
@@ -818,6 +818,16 @@ class HwpParser {
       else break;
     }
     return node;
+  }
+
+  parseSubOrSupContent() {
+    if(this.matchSymbol("{")) {
+      this.next();
+      const expr=this.parseExpr();
+      if(this.matchSymbol("}")) this.next();
+      return expr;
+    }
+    return this.parseSingleFactorNoSubSup();
   }
 
   parseSingleFactorNoSubSup() {
@@ -1056,8 +1066,8 @@ function toHwpEqn(node) {
     case "Root": return `sqrt{${toHwpEqn(node.radicand)}}`;
     case "Superscript": return `${toHwpEqn(node.base)}^{${toHwpEqn(node.exponent)}}`;
     case "Subscript": return `${toHwpEqn(node.base)}_{${toHwpEqn(node.sub)}}`;
-    case "Integral": { let out=node.variant==="int"?"int":"oint"; if(node.lower) out+=`_${toHwpEqn(node.lower)}`; if(node.upper) out+=`^${toHwpEqn(node.upper)}`; if(node.body) out+=` { { ${toHwpEqn(node.body)} } }`; return out; }
-    case "Summation": { let out="sum"; if(node.lower) out+=`_${toHwpEqn(node.lower)}`; if(node.upper) out+=`^${toHwpEqn(node.upper)}`; if(node.body) out+=` { ${toHwpEqn(node.body)} }`; return out; }
+    case "Integral": { let out=node.variant==="int"?"int":"oint"; if(node.lower) out+=`_{${toHwpEqn(node.lower)}}`; if(node.upper) out+=`^{${toHwpEqn(node.upper)}}`; if(node.body) out+=` { { ${toHwpEqn(node.body)} } }`; return out; }
+    case "Summation": { let out="sum"; if(node.lower) out+=`_{${toHwpEqn(node.lower)}}`; if(node.upper) out+=`^{${toHwpEqn(node.upper)}}`; if(node.body) out+=` { ${toHwpEqn(node.body)} }`; return out; }
     case "Decorated": return `${node.decoType} ${toHwpEqn(node.child)}`;
     case "BeginEnv": { const rowStrs=node.rows.map(r=>{const colStr=unifyCaseRowHwp(r.map(e=>toHwpEqn(e)));return colStr.join(" & ");}).join(" # "); return `${node.envName}{${rowStrs}}`; }
     case "Bracket": {
