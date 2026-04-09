@@ -330,8 +330,8 @@
   </div>
 
   <div class="mode-toggle">
-    <button class="mode-btn active" data-mode="hwp2latex">HWP &rarr; LaTeX</button>
-    <button class="mode-btn" data-mode="latex2hwp">LaTeX &rarr; HWP</button>
+    <button class="mode-btn" data-mode="hwp2latex">HWP &rarr; LaTeX</button>
+    <button class="mode-btn active" data-mode="latex2hwp">LaTeX &rarr; HWP</button>
   </div>
 
   <div class="converter">
@@ -1073,7 +1073,7 @@ function toHwpEqn(node) {
 // ═══════════════════════════════════════════════════════════
 // App Logic
 // ═══════════════════════════════════════════════════════════
-let mode = 'hwp2latex';
+let mode = 'latex2hwp';
 
 const inputArea = document.getElementById('input-area');
 const outputArea = document.getElementById('output-area');
@@ -1123,9 +1123,14 @@ function renderExamples() {
   }
 }
 
+function stripDollarSigns(s) {
+  return s.replace(/^\$\$?/, '').replace(/\$\$?$/, '').trim();
+}
+
 function convert() {
-  const input = inputArea.value.trim();
+  let input = inputArea.value.trim();
   if (!input) { outputArea.value = ''; preview.innerHTML = ''; return; }
+  if (mode === 'latex2hwp') input = stripDollarSigns(input);
   try {
     let tokens, ast, result, latexForPreview;
     if (mode === 'hwp2latex') {
@@ -1172,7 +1177,7 @@ document.getElementById('copy-output').addEventListener('click', function() { ha
 modeBtns.forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
 convertBtn.addEventListener('click', convert);
 inputArea.addEventListener('input', convert);
-renderExamples();
+setMode('latex2hwp');
 </script>
 </body>
 </html>
