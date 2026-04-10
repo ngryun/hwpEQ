@@ -53,7 +53,7 @@ function toLatex(node) {
       const left = toLatex(node.left);
       const right = toLatex(node.right);
       if (node.operator === "apply") return `${left}${right}`;
-      if (node.operator === "") return formatImplicitJoin(node, left, right);
+      if (node.operator === "") return formatImplicitSequence(node, toLatex, "latex");
       if (node.operator === "times") return `${left} \\times ${right}`;
       return `${left} ${operatorToLatex(node.operator)} ${right}`;
     }
@@ -140,7 +140,7 @@ function toHwpEqn(node) {
       const left = toHwpEqn(node.left);
       const right = toHwpEqn(node.right);
       if (node.operator === "apply") return `${left}${right}`;
-      if (node.operator === "") return formatImplicitJoin(node, left, right);
+      if (node.operator === "") return formatImplicitSequence(node, toHwpEqn, "hwp");
       if (node.operator === "times") return `${left} times ${right}`;
       return `${left} ${node.operator} ${right}`;
     }

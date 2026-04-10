@@ -31,6 +31,47 @@ const LATEX_KEYWORDS = new Set([
   "overset","underset","text","mathrm","mathit","mathbf","boldsymbol","operatorname"
 ]);
 
+const HWP_TIGHT_FUNCTION_PREFIXES_IN_TOKENIZER = [
+  "arcsin","arccos","arctan",
+  "cosec","sinh","cosh","tanh","coth",
+  "sin","cos","tan","cot","sec","csc",
+  "log","ln","lg","exp","Exp"
+];
+
+const HWP_LITERAL_SUFFIXES_IN_TOKENIZER = new Set([
+  "alpha","beta","gamma","delta","epsilon","zeta","eta","theta",
+  "iota","kappa","lambda","mu","nu","xi","pi","rho","sigma","tau",
+  "upsilon","phi","chi","psi","omega",
+  "varepsilon","vartheta","varpi","varrho","varsigma","varphi"
+]);
+
+function canSplitHwpFunctionSuffix(ident) {
+  return ident.length === 1
+    || HWP_LITERAL_SUFFIXES_IN_TOKENIZER.has(ident)
+    || HWP_TIGHT_FUNCTION_PREFIXES_IN_TOKENIZER.some(prefix => ident.startsWith(prefix) && ident.length > prefix.length);
+}
+
+function splitHwpFunctionIdentifier(ident) {
+  const parts = [];
+  let remaining = ident;
+
+  while (remaining.length > 1) {
+    const prefix = HWP_TIGHT_FUNCTION_PREFIXES_IN_TOKENIZER.find(name =>
+      remaining.startsWith(name)
+      && remaining.length > name.length
+      && canSplitHwpFunctionSuffix(remaining.slice(name.length))
+    );
+
+    if (!prefix) break;
+
+    parts.push(prefix);
+    remaining = remaining.slice(prefix.length);
+  }
+
+  parts.push(remaining);
+  return parts.length > 1 ? parts : null;
+}
+
 function tokenizeHwpEqn(input) {
   const tokens = [];
   let i = 0;
@@ -63,9 +104,13 @@ function tokenizeHwpEqn(input) {
       let ident = ch;
       i++;
       while (i < input.length && isAlpha(input[i])) { ident += input[i]; i++; }
-      const up = ident.toUpperCase();
-      if (HWP_KEYWORDS.has(up)) tokens.push({ type: TokenType.KEYWORD, value: up });
-      else tokens.push({ type: TokenType.IDENT, value: ident });
+      const splitParts = splitHwpFunctionIdentifier(ident);
+      const identifiers = splitParts || [ident];
+      for (const part of identifiers) {
+        const up = part.toUpperCase();
+        if (HWP_KEYWORDS.has(up)) tokens.push({ type: TokenType.KEYWORD, value: up });
+        else tokens.push({ type: TokenType.IDENT, value: part });
+      }
       continue;
     }
     tokens.push({ type: TokenType.UNKNOWN, value: ch });

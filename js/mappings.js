@@ -215,6 +215,13 @@ const BASIC_FUNCTIONS = new Set([
   "inf","sup","ln","lim","liminf","limsup"
 ]);
 
+const HWP_TIGHT_FUNCTIONS = new Set([
+  "sin","cos","tan","cot","sec","csc","cosec",
+  "arcsin","arccos","arctan",
+  "sinh","cosh","tanh","coth",
+  "log","ln","lg","exp","Exp"
+]);
+
 const STYLE_TO_LATEX = {
   rm: "\\mathrm",
   it: "\\mathit",
@@ -262,15 +269,44 @@ function isFunctionLikeNode(node) {
   return false;
 }
 
+function getFunctionLikeName(node) {
+  if (!node) return null;
+  if (node.type === "FunctionName") return node.value;
+  if (node.type === "Literal" && isFunctionLikeValue(node.value)) return node.value;
+  if (node.type === "Subscript" || node.type === "Superscript") return getFunctionLikeName(node.base);
+  return null;
+}
+
 function functionNameToLatex(name) {
   return `\\${name}`;
 }
 
-function formatImplicitJoin(node, left, right) {
-  if (isFunctionLikeNode(node.left)) {
-    return node.right.type === "Bracket" ? `${left}${right}` : `${left} ${right}`;
+function flattenImplicitFactors(node) {
+  if (node && node.type === "BinaryOp" && node.operator === "") {
+    return [...flattenImplicitFactors(node.left), ...flattenImplicitFactors(node.right)];
   }
-  return `${left}${right}`;
+  return [node];
+}
+
+function implicitJoinSeparator(previousNode, currentNode, target) {
+  const previousFunctionName = getFunctionLikeName(previousNode);
+  const currentFunctionName = getFunctionLikeName(currentNode);
+
+  if (currentFunctionName) return " ";
+  if (!previousFunctionName) return "";
+  if (currentNode && currentNode.type === "Bracket") return "";
+  if (target === "latex") return " ";
+  return HWP_TIGHT_FUNCTIONS.has(previousFunctionName) ? "" : " ";
+}
+
+function formatImplicitSequence(node, renderFactor, target) {
+  const factors = flattenImplicitFactors(node);
+  let rendered = "";
+  for (let i = 0; i < factors.length; i++) {
+    if (i > 0) rendered += implicitJoinSeparator(factors[i - 1], factors[i], target);
+    rendered += renderFactor(factors[i]);
+  }
+  return rendered;
 }
 
 function wrapStyledChildForHwp(node) {

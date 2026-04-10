@@ -16,6 +16,7 @@ const examples = {
   hwp2latex: [
     { label: 'x^2 + y^2', value: 'x^2 + y^2' },
     { label: 'y^2 over z', value: 'y^2 over z' },
+    { label: 'a sinx', value: 'a sinx' },
     { label: 'int_1^2 {x^3}', value: 'int_1^2 {x^3}' },
     { label: 'sqrt {a + b}', value: 'sqrt {a + b}' },
     { label: 'sum_1^n {k^2}', value: 'sum_1^n {k^2}' },
@@ -25,6 +26,7 @@ const examples = {
   latex2hwp: [
     { label: 'x^{2} + y^{2}', value: 'x^{2} + y^{2}' },
     { label: '\\frac{y^2}{z}', value: '\\frac{y^2}{z}' },
+    { label: 'a \\sin x', value: 'a \\sin x' },
     { label: '\\int_{1}^{2} {x^3}', value: '\\int_{1}^{2} {x^3}' },
     { label: '\\sqrt{a + b}', value: '\\sqrt{a + b}' },
     { label: '\\sum_{1}^{n} {k^2}', value: '\\sum_{1}^{n} {k^2}' },
