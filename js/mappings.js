@@ -316,6 +316,11 @@ function wrapStyledChildForHwp(node) {
   return `{${rendered}}`;
 }
 
+function formatStyledForHwp(style, childNode) {
+  const child = wrapStyledChildForHwp(childNode);
+  return child.startsWith("{") ? `${style}${child}` : `${style} ${child}`;
+}
+
 function makeNameNode(value) {
   return { type: BASIC_FUNCTIONS.has(value) ? "FunctionName" : "Literal", value };
 }

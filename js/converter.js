@@ -120,7 +120,7 @@ function toHwpEqn(node) {
     case "Text":
       return `"${node.value}"`;
     case "Styled":
-      return `${node.style} ${wrapStyledChildForHwp(node.child)}`;
+      return formatStyledForHwp(node.style, node.child);
     case "UnaryOp":
       return `${node.operator}${toHwpEqn(node.child)}`;
     case "Negation":

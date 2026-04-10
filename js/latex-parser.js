@@ -295,6 +295,18 @@ class LatexParser {
 
   parseTextCommand() {
     const valueNode = this.parseGroupExpression();
+    if (valueNode.type === "Literal" && /^[A-Za-z0-9]+$/.test(valueNode.value)) {
+      return this.maybeParseSubSup({
+        type: "Styled",
+        style: "rm",
+        child: {
+          type: "Bracket",
+          leftDelim: "{",
+          rightDelim: "}",
+          content: { type: "Literal", value: valueNode.value }
+        }
+      });
+    }
     return { type: "Text", value: valueNode.type === "Literal" ? valueNode.value : toLatex(valueNode).replace(/^\\text\{|\}$/g, "") };
   }
 
