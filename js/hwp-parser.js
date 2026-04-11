@@ -11,7 +11,16 @@ class HwpParser {
   matchSymbol(v) { const t = this.peek(); return t.type === TokenType.SYMBOL && t.value === v; }
   matchKeyword(v) { const t = this.peek(); return t.type === TokenType.KEYWORD && t.value === v; }
 
-  parseExpression() { return this.parseRelation(); }
+  parseExpression() { return this.parseLineBreak(); }
+
+  parseLineBreak() {
+    let node = this.parseRelation();
+    while (this.matchSymbol("#")) {
+      this.next();
+      node = { type: "BinaryOp", operator: "#", left: node, right: this.parseRelation() };
+    }
+    return node;
+  }
 
   canStartFactor() {
     const t = this.peek();

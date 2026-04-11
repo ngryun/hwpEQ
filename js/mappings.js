@@ -159,6 +159,7 @@ const LATEX_LITERAL_TO_HWP = {
 
 const BINARY_OP_TO_LATEX = {
   times: "\\times",
+  "#": "\\\\",
   "->": "\\to",
   "<-": "\\leftarrow",
   "<->": "\\leftrightarrow",
