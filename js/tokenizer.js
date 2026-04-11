@@ -1,14 +1,70 @@
 // ═══════════════════════════════════════════════════════════
 // Tokenizer & Token Types
 // ═══════════════════════════════════════════════════════════
-const TokenType = { KEYWORD: 0, IDENT: 1, NUMBER: 2, SYMBOL: 3, SPACE: 4, EOF: 5, UNKNOWN: 6 };
+const TokenType = { KEYWORD: 0, IDENT: 1, NUMBER: 2, SYMBOL: 3, SPACE: 4, EOF: 5, UNKNOWN: 6, TEXT: 7 };
 
 function isAlpha(ch) { return /^[A-Za-z]$/.test(ch); }
+function isUnicodeLetter(ch) { return /^\p{L}$/u.test(ch); }
+function isIdentifierChar(ch) { return isAlpha(ch) || isUnicodeLetter(ch); }
 function isDigit(ch) { return /^[0-9]$/.test(ch); }
 function isOpenDelimiter(ch) { return "([{|".includes(ch); }
 function isCloseDelimiter(ch) { return ")]}|".includes(ch); }
 function matchingDelimiter(ch) {
   return { "(": ")", "[": "]", "{": "}", "|": "|" }[ch] || "";
+}
+
+function readLatexTextContent(input, start) {
+  let i = start;
+  let depth = 1;
+  let value = "";
+
+  while (i < input.length) {
+    const ch = input[i];
+
+    if (ch === "\\") {
+      if (i + 1 >= input.length) {
+        value += "\\";
+        i++;
+        continue;
+      }
+
+      const next = input[i + 1];
+      if (/[A-Za-z]/.test(next)) {
+        let command = "";
+        i++;
+        while (i < input.length && /[A-Za-z]/.test(input[i])) {
+          command += input[i];
+          i++;
+        }
+        value += "\\" + command;
+        continue;
+      }
+
+      value += next;
+      i += 2;
+      continue;
+    }
+
+    if (ch === "{") {
+      depth++;
+      value += ch;
+      i++;
+      continue;
+    }
+
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) return { value, end: i };
+      value += ch;
+      i++;
+      continue;
+    }
+
+    value += ch;
+    i++;
+  }
+
+  return { value, end: i };
 }
 
 const HWP_KEYWORDS = new Set([
@@ -100,10 +156,10 @@ function tokenizeHwpEqn(input) {
       i++;
       continue;
     }
-    if (isAlpha(ch)) {
+    if (isIdentifierChar(ch)) {
       let ident = ch;
       i++;
-      while (i < input.length && isAlpha(input[i])) { ident += input[i]; i++; }
+      while (i < input.length && isIdentifierChar(input[i])) { ident += input[i]; i++; }
       const splitParts = splitHwpFunctionIdentifier(ident);
       const identifiers = splitParts || [ident];
       for (const part of identifiers) {
@@ -149,19 +205,33 @@ function tokenizeLatex(input) {
         let cmd = "";
         while (i < input.length && /[A-Za-z]/.test(input[i])) { cmd += input[i]; i++; }
         const lower = cmd.toLowerCase();
-        if (cmd.length > 0 && LATEX_KEYWORDS.has(lower)) tokens.push({ type: TokenType.KEYWORD, value: lower });
-        else if (cmd.length > 0) tokens.push({ type: TokenType.IDENT, value: cmd });
-        else tokens.push({ type: TokenType.SYMBOL, value: "\\" });
+        if (cmd.length > 0 && lower === "text" && input[i] === "{") {
+          const { value, end } = readLatexTextContent(input, i + 1);
+          tokens.push({ type: TokenType.KEYWORD, value: lower });
+          tokens.push({ type: TokenType.SYMBOL, value: "{" });
+          tokens.push({ type: TokenType.TEXT, value });
+          if (end < input.length && input[end] === "}") tokens.push({ type: TokenType.SYMBOL, value: "}" });
+          i = Math.min(end + 1, input.length);
+        } else if (cmd.length > 0 && LATEX_KEYWORDS.has(lower)) {
+          tokens.push({ type: TokenType.KEYWORD, value: lower });
+        } else if (cmd.length > 0) {
+          tokens.push({ type: TokenType.IDENT, value: cmd });
+        } else if (i < input.length && "{}".includes(input[i])) {
+          tokens.push({ type: TokenType.SYMBOL, value: input[i], escaped: true });
+          i++;
+        } else {
+          tokens.push({ type: TokenType.SYMBOL, value: "\\" });
+        }
       } else {
         tokens.push({ type: TokenType.SYMBOL, value: ch });
         i++;
       }
       continue;
     }
-    if (isAlpha(ch)) {
+    if (isIdentifierChar(ch)) {
       let ident = ch;
       i++;
-      while (i < input.length && isAlpha(input[i])) { ident += input[i]; i++; }
+      while (i < input.length && isIdentifierChar(input[i])) { ident += input[i]; i++; }
       tokens.push({ type: TokenType.IDENT, value: ident });
       continue;
     }

@@ -10,6 +10,24 @@ function envNameToLatex(node) {
   return { envName: node.envName, alignSpec: node.alignSpec || node.columnAlignSpec || null };
 }
 
+function escapeLatexDelimiter(delim) {
+  if (delim === "{") return "\\{";
+  if (delim === "}") return "\\}";
+  return delim;
+}
+
+function normalizeHwpDelimiter(delim) {
+  if (delim === "\\{" || delim === "{") return "{";
+  if (delim === "\\}" || delim === "}") return "}";
+  return delim;
+}
+
+function formatHwpLeftRight(leftDelim, content, rightDelim) {
+  const left = `LEFT ${normalizeHwpDelimiter(leftDelim)}`;
+  const right = rightDelim ? ` RIGHT ${normalizeHwpDelimiter(rightDelim)}` : "";
+  return `${left} ${content}${right}`;
+}
+
 function envNameToHwp(node) {
   if (node.envName === "vmatrix") return { envName: "dmatrix" };
   if (node.envName === "aligned") return { envName: "eqalign" };
@@ -99,11 +117,15 @@ function toLatex(node) {
     case "Bracket": {
       const content = toLatex(node.content);
       if (node.leftDelim.startsWith("LEFT")) {
-        const left = `\\left${node.leftDelim.slice(4)}`;
-        const right = node.rightDelim.startsWith("RIGHT") ? `\\right${node.rightDelim.slice(5)}` : "";
+        const left = `\\left${escapeLatexDelimiter(node.leftDelim.slice(4))}`;
+        const right = node.rightDelim.startsWith("RIGHT") ? `\\right${escapeLatexDelimiter(node.rightDelim.slice(5))}` : "";
         return `${left} ${content} ${right}`;
       }
-      if (node.leftDelim.startsWith("\\left")) return `${node.leftDelim} ${content} ${node.rightDelim}`;
+      if (node.leftDelim.startsWith("\\left")) {
+        const left = `\\left${escapeLatexDelimiter(node.leftDelim.slice(5))}`;
+        const right = node.rightDelim.startsWith("\\right") ? `\\right${escapeLatexDelimiter(node.rightDelim.slice(6))}` : node.rightDelim;
+        return `${left} ${content} ${right}`;
+      }
       return `${node.leftDelim}${content}${node.rightDelim}`;
     }
     default:
@@ -189,9 +211,8 @@ function toHwpEqn(node) {
       }
       const content = toHwpEqn(node.content);
       if (node.leftDelim.startsWith("\\left")) {
-        const left = `LEFT${node.leftDelim.slice(5)}`;
-        const right = node.rightDelim.startsWith("\\right") ? `RIGHT${node.rightDelim.slice(6)}` : "";
-        return `${left} ${content} ${right}`;
+        const right = node.rightDelim.startsWith("\\right") ? node.rightDelim.slice(6) : "";
+        return formatHwpLeftRight(node.leftDelim.slice(5), content, right);
       }
       return `${node.leftDelim}${content}${node.rightDelim}`;
     }

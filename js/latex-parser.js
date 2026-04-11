@@ -8,7 +8,10 @@ class LatexParser {
   }
   peek() { return this.tokens[this.pos] || { type: TokenType.EOF, value: "" }; }
   next() { const t = this.peek(); if (t.type !== TokenType.EOF) this.pos++; return t; }
-  matchSymbol(v) { const t = this.peek(); return t.type === TokenType.SYMBOL && t.value === v; }
+  matchSymbol(v, includeEscaped = false) {
+    const t = this.peek();
+    return t.type === TokenType.SYMBOL && t.value === v && (includeEscaped || !t.escaped);
+  }
   matchKeyword(v) { const t = this.peek(); return t.type === TokenType.KEYWORD && t.value === v; }
 
   parseExpression() { return this.parseRelation(); }
@@ -16,11 +19,16 @@ class LatexParser {
   canStartFactor() {
     const t = this.peek();
     if (t.type === TokenType.NUMBER || t.type === TokenType.IDENT) return true;
+    if (t.type === TokenType.TEXT) return true;
     if (t.type === TokenType.KEYWORD) {
       const kw = t.value;
       return !["times","right","end","over","atop","choose","overset","underset"].includes(kw);
     }
-    if (t.type === TokenType.SYMBOL && isOpenDelimiter(t.value)) return true;
+    if (t.type === TokenType.SYMBOL) {
+      if (t.escaped) return true;
+      if (isOpenDelimiter(t.value)) return true;
+      return !["+", "-", "/", "^", "_", "=", "<", ">", "&", "#"].includes(t.value) && !isCloseDelimiter(t.value);
+    }
     return false;
   }
 
@@ -197,6 +205,10 @@ class LatexParser {
       this.next();
       return this.maybeParseSubSup(makeNameNode(t.value));
     }
+    if (t.type === TokenType.TEXT) {
+      this.next();
+      return this.maybeParseSubSup({ type: "Text", value: t.value });
+    }
     if (t.type === TokenType.KEYWORD) {
       this.next();
       const kw = t.value;
@@ -250,7 +262,8 @@ class LatexParser {
       return this.maybeParseSubSup({ type: "Literal", value: kw });
     }
     if (t.type === TokenType.SYMBOL) {
-      if (isOpenDelimiter(t.value)) {
+      if (t.escaped && isOpenDelimiter(t.value)) return this.parseEscapedBracket();
+      if (isOpenDelimiter(t.value) && !t.escaped) {
         const open = this.next().value;
         const content = this.parseExpression();
         let right = "";
@@ -294,6 +307,33 @@ class LatexParser {
   }
 
   parseTextCommand() {
+    if (this.matchSymbol("{")) {
+      this.next();
+      if (this.peek().type === TokenType.TEXT) {
+        const value = this.next().value;
+        if (this.matchSymbol("}")) this.next();
+        return this.maybeParseSubSup({ type: "Text", value });
+      }
+      const valueNode = this.parseExpression();
+      if (this.matchSymbol("}")) this.next();
+      if (valueNode.type === "Literal" && /^[A-Za-z0-9]+$/.test(valueNode.value)) {
+        return this.maybeParseSubSup({
+          type: "Styled",
+          style: "rm",
+          child: {
+            type: "Bracket",
+            leftDelim: "{",
+            rightDelim: "}",
+            content: { type: "Literal", value: valueNode.value }
+          }
+        });
+      }
+      return this.maybeParseSubSup({
+        type: "Text",
+        value: valueNode.type === "Literal" ? valueNode.value : toLatex(valueNode).replace(/^\\text\{|\}$/g, "")
+      });
+    }
+
     const valueNode = this.parseGroupExpression();
     if (valueNode.type === "Literal" && /^[A-Za-z0-9]+$/.test(valueNode.value)) {
       return this.maybeParseSubSup({
@@ -307,7 +347,10 @@ class LatexParser {
         }
       });
     }
-    return { type: "Text", value: valueNode.type === "Literal" ? valueNode.value : toLatex(valueNode).replace(/^\\text\{|\}$/g, "") };
+    return this.maybeParseSubSup({
+      type: "Text",
+      value: valueNode.type === "Literal" ? valueNode.value : toLatex(valueNode).replace(/^\\text\{|\}$/g, "")
+    });
   }
 
   tryParseFunctionCall() {
@@ -329,7 +372,7 @@ class LatexParser {
     let leftDelim = "";
     const s = this.peek();
     if (s.type === TokenType.SYMBOL && isOpenDelimiter(s.value)) {
-      leftDelim = "\\left" + s.value;
+      leftDelim = "\\left" + (s.escaped && "{}".includes(s.value) ? `\\${s.value}` : s.value);
       this.next();
     }
     const content = this.parseExpression();
@@ -338,12 +381,42 @@ class LatexParser {
       this.next();
       const s2 = this.peek();
       if (s2.type === TokenType.SYMBOL && isCloseDelimiter(s2.value)) {
-        rightDelim = "\\right" + s2.value;
+        rightDelim = "\\right" + (s2.escaped && "{}".includes(s2.value) ? `\\${s2.value}` : s2.value);
         this.next();
       }
     }
     if (leftDelim === "" && rightDelim === "") return content;
     return this.maybeParseSubSup(this.flattenBracket({ type: "Bracket", leftDelim, rightDelim, content }));
+  }
+
+  parseEscapedBracket() {
+    const openToken = this.next();
+    const open = openToken.value;
+    const close = matchingDelimiter(open);
+    let depth = 1;
+    let end = this.pos;
+
+    while (end < this.tokens.length) {
+      const tk = this.tokens[end];
+      if (tk.type === TokenType.EOF) break;
+      if (tk.type === TokenType.SYMBOL) {
+        if (tk.value === open) depth++;
+        else if (tk.value === close) depth--;
+        if (depth === 0) break;
+      }
+      end++;
+    }
+
+    const content = parseTokenSlice(LatexParser, this.tokens.slice(this.pos, end));
+    this.pos = end;
+    if (this.peek().type === TokenType.SYMBOL && this.peek().value === close) this.next();
+
+    return this.maybeParseSubSup({
+      type: "Bracket",
+      leftDelim: `\\left\\${open}`,
+      rightDelim: `\\right\\${close}`,
+      content
+    });
   }
 
   flattenBracket(br) {
