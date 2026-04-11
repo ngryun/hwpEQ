@@ -24,9 +24,11 @@ class HwpParser {
 
   canStartFactor() {
     const t = this.peek();
-    if (t.type === TokenType.NUMBER || t.type === TokenType.IDENT) return true;
+    if (t.type === TokenType.NUMBER) return true;
+    if (t.type === TokenType.IDENT) return !RELATION_OPERATORS.has(normalizeHwpOperator(t.value));
     if (t.type === TokenType.KEYWORD) {
       const kw = t.value;
+      if (RELATION_OPERATORS.has(normalizeHwpOperator(kw))) return false;
       return !["TIMES", "OVER", "ATOP", "CHOOSE", "REL", "BUILDREL", "RIGHT"].includes(kw);
     }
     if (t.type === TokenType.SYMBOL && (isOpenDelimiter(t.value) || t.value === "\"")) return true;

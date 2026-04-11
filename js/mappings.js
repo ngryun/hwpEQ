@@ -36,6 +36,7 @@ const HWP_LITERAL_TO_LATEX = {
   mapsto: "\\mapsto",
   "->": "\\to", "<-": "\\leftarrow", "<->": "\\leftrightarrow",
   "<=": "\\leq", ">=": "\\geq", "<>": "\\neq", "=>": "\\Rightarrow",
+  LEQ: "\\leq", GEQ: "\\geq",
   // Relations & operators
   approx: "\\approx", sim: "\\sim", simeq: "\\simeq",
   equiv: "\\equiv", cong: "\\cong",
@@ -89,6 +90,7 @@ const LATEX_LITERAL_TO_HWP = {
   // Comparisons
   infty: "inf", infinity: "inf",
   leq: "<=", le: "<=", geq: ">=", ge: ">=", neq: "<>", ne: "<>",
+  "<=": "LEQ", ">=": "GEQ",
   // Set operators
   bigcup: "UNION", cup: "SMALLUNION", bigcap: "INTER", cap: "SMALLINTER",
   prod: "PROD", lim: "lim", bigg: "bigg",
@@ -243,6 +245,8 @@ function normalizeLatexOperator(value) {
 
 function normalizeHwpOperator(value) {
   if (RELATION_OPERATORS.has(value)) return value;
+  if (value === "LEQ") return "<=";
+  if (value === "GEQ") return ">=";
   return HWP_LITERAL_TO_LATEX[value] ? (LATEX_LITERAL_TO_HWP[value] || value) : value;
 }
 

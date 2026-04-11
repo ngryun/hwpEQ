@@ -164,7 +164,7 @@ function toHwpEqn(node) {
       if (node.operator === "apply") return `${left}${right}`;
       if (node.operator === "") return formatImplicitSequence(node, toHwpEqn, "hwp");
       if (node.operator === "times") return `${left} times ${right}`;
-      return `${left} ${node.operator} ${right}`;
+      return `${left} ${literalToHwp(node.operator)} ${right}`;
     }
     case "Fraction":
       return node.withBar

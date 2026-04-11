@@ -75,6 +75,7 @@ const HWP_KEYWORDS = new Set([
   "MATRIX","PMATRIX","BMATRIX","DMATRIX","CASES",
   "PILE","LPILE","RPILE","EQALIGN",
   "CHOOSE","BINOM","NOT","REL","BUILDREL","BIGG","COL","LCOL","RCOL",
+  "GEQ","LEQ",
   "RM","IT","BOLD","RMBOLD",
   "ROOT","OF"
 ]);

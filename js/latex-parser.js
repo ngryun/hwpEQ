@@ -27,10 +27,12 @@ class LatexParser {
 
   canStartFactor() {
     const t = this.peek();
-    if (t.type === TokenType.NUMBER || t.type === TokenType.IDENT) return true;
+    if (t.type === TokenType.NUMBER) return true;
+    if (t.type === TokenType.IDENT) return !RELATION_OPERATORS.has(normalizeLatexOperator(t.value));
     if (t.type === TokenType.TEXT) return true;
     if (t.type === TokenType.KEYWORD) {
       const kw = t.value;
+      if (RELATION_OPERATORS.has(normalizeLatexOperator(kw))) return false;
       return !["times","right","end","over","atop","choose","overset","underset"].includes(kw);
     }
     if (t.type === TokenType.SYMBOL) {
