@@ -273,6 +273,7 @@ class LatexParser {
       return this.maybeParseSubSup({ type: "Literal", value: kw });
     }
     if (t.type === TokenType.SYMBOL) {
+      if (t.value === "\"") return this.parseQuotedText();
       if (t.escaped && isOpenDelimiter(t.value)) return this.parseEscapedBracket();
       if (isOpenDelimiter(t.value) && !t.escaped) {
         const open = this.next().value;
@@ -362,6 +363,16 @@ class LatexParser {
       type: "Text",
       value: valueNode.type === "Literal" ? valueNode.value : toLatex(valueNode).replace(/^\\text\{|\}$/g, "")
     });
+  }
+
+  parseQuotedText() {
+    this.next();
+    let value = "";
+    while (!this.matchSymbol("\"") && this.peek().type !== TokenType.EOF) {
+      value += this.next().value;
+    }
+    if (this.matchSymbol("\"")) this.next();
+    return this.maybeParseSubSup({ type: "Text", value });
   }
 
   tryParseFunctionCall() {

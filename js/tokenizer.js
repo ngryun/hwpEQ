@@ -13,6 +13,39 @@ function matchingDelimiter(ch) {
   return { "(": ")", "[": "]", "{": "}", "|": "|" }[ch] || "";
 }
 
+function readLiteralRun(input, start, stopChars) {
+  let i = start;
+  let value = "";
+
+  while (i < input.length) {
+    const ch = input[i];
+    if (/\s/.test(ch) || stopChars.includes(ch)) break;
+    value += ch;
+    i++;
+  }
+
+  return { value, end: i };
+}
+
+function readQuotedTextContent(input, start) {
+  let i = start;
+  let value = "";
+
+  while (i < input.length) {
+    const ch = input[i];
+    if (ch === "\"") return { value, end: i };
+    if (ch === "\\" && i + 1 < input.length && input[i + 1] === "\"") {
+      value += "\"";
+      i += 2;
+      continue;
+    }
+    value += ch;
+    i++;
+  }
+
+  return { value, end: i };
+}
+
 function readLatexTextContent(input, start) {
   let i = start;
   let depth = 1;
@@ -132,9 +165,18 @@ function splitHwpFunctionIdentifier(ident) {
 function tokenizeHwpEqn(input) {
   const tokens = [];
   let i = 0;
+  const stopChars = "^_{}()#&~'/,.-+=*\\[]<>|\"";
   while (i < input.length) {
     const ch = input[i];
     if (/\s/.test(ch)) { tokens.push({ type: TokenType.SPACE, value: ch }); i++; continue; }
+    if (ch === "\"") {
+      const { value, end } = readQuotedTextContent(input, i + 1);
+      tokens.push({ type: TokenType.SYMBOL, value: "\"" });
+      tokens.push({ type: TokenType.TEXT, value });
+      if (end < input.length && input[end] === "\"") tokens.push({ type: TokenType.SYMBOL, value: "\"" });
+      i = Math.min(end + 1, input.length);
+      continue;
+    }
     if (isDigit(ch)) {
       let num = ch;
       i++;
@@ -170,6 +212,12 @@ function tokenizeHwpEqn(input) {
       }
       continue;
     }
+    const { value, end } = readLiteralRun(input, i, stopChars);
+    if (value) {
+      tokens.push({ type: TokenType.IDENT, value });
+      i = end;
+      continue;
+    }
     tokens.push({ type: TokenType.UNKNOWN, value: ch });
     i++;
   }
@@ -180,9 +228,18 @@ function tokenizeHwpEqn(input) {
 function tokenizeLatex(input) {
   const tokens = [];
   let i = 0;
+  const stopChars = "^_{}()#&~'/,.-+*=|[]\\<>\"";
   while (i < input.length) {
     const ch = input[i];
     if (/\s/.test(ch)) { tokens.push({ type: TokenType.SPACE, value: ch }); i++; continue; }
+    if (ch === "\"") {
+      const { value, end } = readQuotedTextContent(input, i + 1);
+      tokens.push({ type: TokenType.SYMBOL, value: "\"" });
+      tokens.push({ type: TokenType.TEXT, value });
+      if (end < input.length && input[end] === "\"") tokens.push({ type: TokenType.SYMBOL, value: "\"" });
+      i = Math.min(end + 1, input.length);
+      continue;
+    }
     if (isDigit(ch)) {
       let num = ch;
       i++;
@@ -234,6 +291,12 @@ function tokenizeLatex(input) {
       i++;
       while (i < input.length && isIdentifierChar(input[i])) { ident += input[i]; i++; }
       tokens.push({ type: TokenType.IDENT, value: ident });
+      continue;
+    }
+    const { value, end } = readLiteralRun(input, i, stopChars);
+    if (value) {
+      tokens.push({ type: TokenType.IDENT, value });
+      i = end;
       continue;
     }
     tokens.push({ type: TokenType.UNKNOWN, value: ch });
