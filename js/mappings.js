@@ -225,6 +225,10 @@ const HWP_TIGHT_FUNCTIONS = new Set([
   "log","ln","lg","exp","Exp"
 ]);
 
+const HWP_SPACED_LITERAL_TOKENS = new Set([
+  "cdot","cdots","...","vdots","ddots"
+]);
+
 const STYLE_TO_LATEX = {
   rm: "\\mathrm",
   it: "\\mathit",
@@ -296,6 +300,14 @@ function flattenImplicitFactors(node) {
 function implicitJoinSeparator(previousNode, currentNode, target) {
   const previousFunctionName = getFunctionLikeName(previousNode);
   const currentFunctionName = getFunctionLikeName(currentNode);
+  const previousLiteralValue = previousNode && previousNode.type === "Literal" ? literalToHwp(previousNode.value) : "";
+  const currentLiteralValue = currentNode && currentNode.type === "Literal" ? literalToHwp(currentNode.value) : "";
+
+  if (target === "hwp") {
+    const previousNeedsSpacing = HWP_SPACED_LITERAL_TOKENS.has(previousLiteralValue) || /[^A-Za-z0-9_]/.test(previousLiteralValue);
+    const currentNeedsSpacing = HWP_SPACED_LITERAL_TOKENS.has(currentLiteralValue) || /[^A-Za-z0-9_]/.test(currentLiteralValue);
+    if (previousNeedsSpacing || currentNeedsSpacing) return " ";
+  }
 
   if (currentFunctionName) return " ";
   if (!previousFunctionName) return "";

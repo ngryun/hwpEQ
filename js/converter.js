@@ -192,7 +192,7 @@ function toHwpEqn(node) {
       return out;
     }
     case "Decorated":
-      return `${node.decoType} ${toHwpEqn(node.child)}`;
+      return `${node.decoType}{${toHwpEqn(node.child)}}`;
     case "BeginEnv": {
       const mapped = envNameToHwp(node);
       if (mapped.columnAlignSpec && isHwpMatrixEnvName(mapped.envName)) {
