@@ -153,6 +153,7 @@ body {
   color: var(--text-dim);
   font-size: 0.7rem;
   font-family: inherit;
+  white-space: nowrap;
   cursor: pointer;
   transition: all 0.25s;
 }
@@ -165,6 +166,16 @@ body {
   border-color: #86c68a;
   color: #5a9e5e;
   background: #f0faf0;
+}
+.copy-btn.failed {
+  border-color: #f0b4b4;
+  color: #d16b6b;
+  background: #fdf2f2;
+}
+.copy-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
 }
 .copy-btn svg {
   width: 13px; height: 13px;
@@ -239,13 +250,28 @@ body {
   min-height: 80px;
   text-align: center;
 }
+.preview-header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  margin-bottom: 16px;
+}
 .preview-label {
+  grid-column: 2;
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 1.5px;
   color: var(--text-dim);
-  margin-bottom: 16px;
+}
+.preview-header .copy-btn {
+  grid-column: 3;
+  justify-self: end;
+}
+@media (max-width: 700px) {
+  .preview-header { grid-template-columns: 1fr auto; }
+  .preview-label { grid-column: 1; justify-self: start; }
+  .preview-header .copy-btn { grid-column: 2; }
 }
 .preview-content {
   font-size: 1.4rem;
