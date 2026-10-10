@@ -14,6 +14,7 @@ class LatexParser {
   }
   matchKeyword(v) { const t = this.peek(); return t.type === TokenType.KEYWORD && t.value === v; }
 
+  parse() { return parseCompleteExpression(this); }
   parseExpression() { return this.parseLineBreak(); }
 
   parseLineBreak() {
@@ -279,7 +280,8 @@ class LatexParser {
         const open = this.next().value;
         const content = this.parseExpression();
         let right = "";
-        if (matchingDelimiter(open) === this.peek().value) right = this.next().value;
+        const close = this.peek();
+        if (close.type === TokenType.SYMBOL && !close.escaped && closesBracket(open, close.value)) right = this.next().value;
         return this.maybeParseSubSup(this.flattenBracket({ type: "Bracket", leftDelim: open, rightDelim: right, content }));
       }
       if (isCloseDelimiter(t.value)) { this.next(); return { type: "Literal", value: t.value }; }
@@ -391,24 +393,29 @@ class LatexParser {
   }
 
   parseLeftRightBracket() {
-    let leftDelim = "";
-    const s = this.peek();
-    if (s.type === TokenType.SYMBOL && isOpenDelimiter(s.value)) {
-      leftDelim = "\\left" + (s.escaped && "{}".includes(s.value) ? `\\${s.value}` : s.value);
-      this.next();
-    }
+    const leftDelim = this.parseSizedDelimiter();
     const content = this.parseExpression();
     let rightDelim = "";
     if (this.matchKeyword("right")) {
       this.next();
-      const s2 = this.peek();
-      if (s2.type === TokenType.SYMBOL && isCloseDelimiter(s2.value)) {
-        rightDelim = "\\right" + (s2.escaped && "{}".includes(s2.value) ? `\\${s2.value}` : s2.value);
-        this.next();
-      }
+      rightDelim = this.parseSizedDelimiter();
     }
     if (leftDelim === "" && rightDelim === "") return content;
-    return this.maybeParseSubSup(this.flattenBracket({ type: "Bracket", leftDelim, rightDelim, content }));
+    // A missing side becomes the invisible delimiter "." so \left/\right always stay paired.
+    return this.maybeParseSubSup(this.flattenBracket({
+      type: "Bracket",
+      leftDelim: `\\left${leftDelim || "."}`,
+      rightDelim: `\\right${rightDelim || "."}`,
+      content
+    }));
+  }
+
+  // Delimiter after \left or \right: any bracket symbol (\{ \} kept escaped), or "." for an invisible delimiter.
+  parseSizedDelimiter() {
+    const t = this.peek();
+    if (t.type !== TokenType.SYMBOL || !(isOpenDelimiter(t.value) || isCloseDelimiter(t.value) || t.value === ".")) return "";
+    this.next();
+    return t.escaped && "{}".includes(t.value) ? `\\${t.value}` : t.value;
   }
 
   parseEscapedBracket() {

@@ -23,9 +23,7 @@ function normalizeHwpDelimiter(delim) {
 }
 
 function formatHwpLeftRight(leftDelim, content, rightDelim) {
-  const left = `LEFT ${normalizeHwpDelimiter(leftDelim)}`;
-  const right = rightDelim ? ` RIGHT ${normalizeHwpDelimiter(rightDelim)}` : "";
-  return `${left} ${content}${right}`;
+  return `LEFT ${normalizeHwpDelimiter(leftDelim || ".")} ${content} RIGHT ${normalizeHwpDelimiter(rightDelim || ".")}`;
 }
 
 function envNameToHwp(node) {
@@ -52,19 +50,20 @@ function toLatex(node) {
       return `\\text{${node.value}}`;
     case "Styled":
       return `${STYLE_TO_LATEX[node.style] || "\\mathrm"}{${toLatex(node.child)}}`;
-    case "UnaryOp":
-      return `${node.operator}${toLatex(node.child)}`;
+    case "UnaryOp": {
+      const operator = operatorToLatex(node.operator);
+      return /^\\[A-Za-z]+$/.test(operator) ? `${operator} ${toLatex(node.child)}` : `${operator}${toLatex(node.child)}`;
+    }
     case "Negation":
-      return `\\not${toLatex(node.child)}`;
+      return joinLatex("\\not", toLatex(node.child));
     case "SizedLiteral":
-      return `\\${node.size}${toLatex(node.child)}`;
+      return joinLatex(`\\${node.size}`, toLatex(node.child));
     case "Choose":
       return `\\binom{${toLatex(node.total)}}{${toLatex(node.choose)}}`;
     case "Relation": {
-      const arrow = operatorToLatex(node.arrow);
-      const decorated = node.below
-        ? `\\overset{${toLatex(node.above)}}{\\underset{${toLatex(node.below)}}{${arrow}}}`
-        : `\\overset{${toLatex(node.above)}}{${arrow}}`;
+      let decorated = operatorToLatex(node.arrow);
+      if (node.below) decorated = `\\underset{${toLatex(node.below)}}{${decorated}}`;
+      if (node.above) decorated = `\\overset{${toLatex(node.above)}}{${decorated}}`;
       return `${toLatex(node.left)} ${decorated} ${toLatex(node.right)}`;
     }
     case "BinaryOp": {
@@ -118,12 +117,12 @@ function toLatex(node) {
       const content = toLatex(node.content);
       if (node.leftDelim.startsWith("LEFT")) {
         const left = `\\left${escapeLatexDelimiter(node.leftDelim.slice(4))}`;
-        const right = node.rightDelim.startsWith("RIGHT") ? `\\right${escapeLatexDelimiter(node.rightDelim.slice(5))}` : "";
+        const right = node.rightDelim.startsWith("RIGHT") ? `\\right${escapeLatexDelimiter(node.rightDelim.slice(5))}` : "\\right.";
         return `${left} ${content} ${right}`;
       }
       if (node.leftDelim.startsWith("\\left")) {
         const left = `\\left${escapeLatexDelimiter(node.leftDelim.slice(5))}`;
-        const right = node.rightDelim.startsWith("\\right") ? `\\right${escapeLatexDelimiter(node.rightDelim.slice(6))}` : node.rightDelim;
+        const right = node.rightDelim.startsWith("\\right") ? `\\right${escapeLatexDelimiter(node.rightDelim.slice(6))}` : "\\right.";
         return `${left} ${content} ${right}`;
       }
       return `${node.leftDelim}${content}${node.rightDelim}`;
@@ -131,6 +130,14 @@ function toLatex(node) {
     default:
       return "";
   }
+}
+
+function convertHwpToLatex(input) {
+  return toLatex(new HwpParser(tokenizeHwpEqn(input)).parse()).trim();
+}
+
+function convertLatexToHwp(input) {
+  return toHwpEqn(new LatexParser(tokenizeLatex(input)).parse()).trim();
 }
 
 function toHwpEqn(node) {
@@ -152,8 +159,10 @@ function toHwpEqn(node) {
     case "Choose":
       return `${toHwpEqn(node.total)} choose ${toHwpEqn(node.choose)}`;
     case "Relation": {
+      // \underset alone has no "above" annotation; REL then gets an empty first argument.
       const keyword = node.below ? "REL" : "BUILDREL";
-      let out = `${toHwpEqn(node.left)} ${keyword} ${literalToHwp(node.arrow)} {${toHwpEqn(node.above)}}`;
+      const above = node.above ? toHwpEqn(node.above) : "";
+      let out = `${toHwpEqn(node.left)} ${keyword} ${literalToHwp(node.arrow)} {${above}}`;
       if (node.below) out += ` {${toHwpEqn(node.below)}}`;
       out += ` ${toHwpEqn(node.right)}`;
       return out;
@@ -211,7 +220,7 @@ function toHwpEqn(node) {
       }
       const content = toHwpEqn(node.content);
       if (node.leftDelim.startsWith("\\left")) {
-        const right = node.rightDelim.startsWith("\\right") ? node.rightDelim.slice(6) : "";
+        const right = node.rightDelim.startsWith("\\right") ? node.rightDelim.slice(6) : ".";
         return formatHwpLeftRight(node.leftDelim.slice(5), content, right);
       }
       return `${node.leftDelim}${content}${node.rightDelim}`;

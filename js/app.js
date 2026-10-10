@@ -64,16 +64,12 @@ function convert() {
   if (!input) { outputArea.value = ''; preview.innerHTML = ''; return; }
   if (mode === 'latex2hwp') input = stripDollarSigns(input);
   try {
-    let tokens, ast, result, latexForPreview;
+    let result, latexForPreview;
     if (mode === 'hwp2latex') {
-      tokens = tokenizeHwpEqn(input);
-      ast = new HwpParser(tokens).parseExpression();
-      result = toLatex(ast).trim();
+      result = convertHwpToLatex(input);
       latexForPreview = result;
     } else {
-      tokens = tokenizeLatex(input);
-      ast = new LatexParser(tokens).parseExpression();
-      result = toHwpEqn(ast).trim();
+      result = convertLatexToHwp(input);
       latexForPreview = input;
     }
     outputArea.value = result;

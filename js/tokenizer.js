@@ -12,6 +12,11 @@ function isCloseDelimiter(ch) { return ")]}|".includes(ch); }
 function matchingDelimiter(ch) {
   return { "(": ")", "[": "]", "{": "}", "|": "|" }[ch] || "";
 }
+// Parentheses and square brackets may close each other so half-open intervals like [0, 1) parse.
+function closesBracket(open, close) {
+  if (open === "(" || open === "[") return close === ")" || close === "]";
+  return matchingDelimiter(open) === close;
+}
 
 function readLiteralRun(input, start, stopChars) {
   let i = start;
@@ -162,10 +167,13 @@ function splitHwpFunctionIdentifier(ident) {
   return parts.length > 1 ? parts : null;
 }
 
+const HWP_SYMBOL_CHARS = "^_{}()#&~'`/,.-+=*\\[]<>|\"";
+// Two-character HWP operators kept as one token: +- (±), -+ (∓), != (≠).
+const HWP_COMPOUND_SYMBOLS = ["+-", "-+", "!="];
+
 function tokenizeHwpEqn(input) {
   const tokens = [];
   let i = 0;
-  const stopChars = "^_{}()#&~'/,.-+=*\\[]<>|\"";
   while (i < input.length) {
     const ch = input[i];
     if (/\s/.test(ch)) { tokens.push({ type: TokenType.SPACE, value: ch }); i++; continue; }
@@ -189,7 +197,13 @@ function tokenizeHwpEqn(input) {
       tokens.push({ type: TokenType.NUMBER, value: num });
       continue;
     }
-    if ("^_{}()#&~'/,.-+=*\\[]<>|\"".includes(ch)) {
+    const pair = input.slice(i, i + 2);
+    if (HWP_COMPOUND_SYMBOLS.includes(pair)) {
+      tokens.push({ type: TokenType.SYMBOL, value: pair });
+      i += 2;
+      continue;
+    }
+    if (HWP_SYMBOL_CHARS.includes(ch)) {
       if (ch === "\\" && i + 1 < input.length && input[i + 1] === "\\") {
         tokens.push({ type: TokenType.SYMBOL, value: "\\\\" });
         i += 2;
@@ -212,7 +226,7 @@ function tokenizeHwpEqn(input) {
       }
       continue;
     }
-    const { value, end } = readLiteralRun(input, i, stopChars);
+    const { value, end } = readLiteralRun(input, i, HWP_SYMBOL_CHARS);
     if (value) {
       tokens.push({ type: TokenType.IDENT, value });
       i = end;

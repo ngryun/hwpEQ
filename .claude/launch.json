@@ -4,8 +4,8 @@
     {
       "name": "hwpEQ",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8080", "--directory", "C:/Users/User/Documents/GitHub/hwpEQ"],
-      "port": 8080
+      "runtimeArgs": ["-m", "http.server", "8642"],
+      "port": 8642
     }
   ]
 }

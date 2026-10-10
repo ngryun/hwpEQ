@@ -77,7 +77,9 @@ const HWP_LITERAL_TO_LATEX = {
   // Dots
   vdots: "\\vdots", ddots: "\\ddots",
   // Plus/minus
-  "+-": "\\pm", "-+": "\\mp"
+  "+-": "\\pm", "-+": "\\mp",
+  // Spacing (~ is a normal space in both; ` is HWP's quarter space)
+  "`": "\\,"
 };
 
 const LATEX_LITERAL_TO_HWP = {
@@ -168,10 +170,13 @@ const BINARY_OP_TO_LATEX = {
   "=>": "\\Rightarrow",
   "<=": "\\leq",
   ">=": "\\geq",
-  "<>": "\\neq"
+  "<>": "\\neq",
+  "!=": "\\neq",
+  "+-": "\\pm",
+  "-+": "\\mp"
 };
 
-const RELATION_OPERATORS = new Set(["=", "<", ">", "<=", ">=", "<>", "->", "<-", "<->", "=>"]);
+const RELATION_OPERATORS = new Set(["=", "<", ">", "<=", ">=", "<>", "!=", "->", "<-", "<->", "=>"]);
 
 const DECORATION_TO_LATEX = {
   acute: "\\acute",
@@ -297,7 +302,18 @@ function flattenImplicitFactors(node) {
   return [node];
 }
 
-function implicitJoinSeparator(previousNode, currentNode, target) {
+// True when gluing two rendered pieces would merge them into one name,
+// e.g. "\pi" + "r" -> "\pir" in LaTeX, or "x" + "in" -> "xin" in HWP.
+function needsTokenBoundary(previousText, currentText, target) {
+  if (!/^[A-Za-z]/.test(currentText)) return false;
+  return target === "latex" ? /\\[A-Za-z]+$/.test(previousText) : /[A-Za-z]$/.test(previousText);
+}
+
+function joinLatex(previousText, currentText) {
+  return previousText + (needsTokenBoundary(previousText, currentText, "latex") ? " " : "") + currentText;
+}
+
+function implicitJoinSeparator(previousNode, currentNode, target, previousText, currentText) {
   const previousFunctionName = getFunctionLikeName(previousNode);
   const currentFunctionName = getFunctionLikeName(currentNode);
   const previousLiteralValue = previousNode && previousNode.type === "Literal" ? literalToHwp(previousNode.value) : "";
@@ -310,7 +326,7 @@ function implicitJoinSeparator(previousNode, currentNode, target) {
   }
 
   if (currentFunctionName) return " ";
-  if (!previousFunctionName) return "";
+  if (!previousFunctionName) return needsTokenBoundary(previousText, currentText, target) ? " " : "";
   if (currentNode && currentNode.type === "Bracket") return "";
   if (target === "latex") return " ";
   return HWP_TIGHT_FUNCTIONS.has(previousFunctionName) ? "" : " ";
@@ -320,8 +336,9 @@ function formatImplicitSequence(node, renderFactor, target) {
   const factors = flattenImplicitFactors(node);
   let rendered = "";
   for (let i = 0; i < factors.length; i++) {
-    if (i > 0) rendered += implicitJoinSeparator(factors[i - 1], factors[i], target);
-    rendered += renderFactor(factors[i]);
+    const current = renderFactor(factors[i]);
+    if (i > 0) rendered += implicitJoinSeparator(factors[i - 1], factors[i], target, rendered, current);
+    rendered += current;
   }
   return rendered;
 }

@@ -1,6 +1,9 @@
 // ═══════════════════════════════════════════════════════════
 // HWP Equation Parser (recursive descent)
 // ═══════════════════════════════════════════════════════════
+const HWP_ADDITIVE_OPERATORS = ["+", "-", "+-", "-+"];
+const HWP_NON_FACTOR_SYMBOLS = new Set([...HWP_ADDITIVE_OPERATORS, "/", "^", "_", "=", "<", ">", "!=", "&", "#", "\\\\"]);
+
 class HwpParser {
   constructor(tokens) {
     this.tokens = tokens.filter(t => t.type !== TokenType.SPACE && t.type !== TokenType.UNKNOWN);
@@ -11,6 +14,7 @@ class HwpParser {
   matchSymbol(v) { const t = this.peek(); return t.type === TokenType.SYMBOL && t.value === v; }
   matchKeyword(v) { const t = this.peek(); return t.type === TokenType.KEYWORD && t.value === v; }
 
+  parse() { return parseCompleteExpression(this); }
   parseExpression() { return this.parseLineBreak(); }
 
   parseLineBreak() {
@@ -31,7 +35,10 @@ class HwpParser {
       if (RELATION_OPERATORS.has(normalizeHwpOperator(kw))) return false;
       return !["TIMES", "OVER", "ATOP", "CHOOSE", "REL", "BUILDREL", "RIGHT"].includes(kw);
     }
-    if (t.type === TokenType.SYMBOL && (isOpenDelimiter(t.value) || t.value === "\"")) return true;
+    if (t.type === TokenType.SYMBOL) {
+      if (isOpenDelimiter(t.value) || t.value === "\"") return true;
+      return !HWP_NON_FACTOR_SYMBOLS.has(t.value) && !isCloseDelimiter(t.value);
+    }
     return false;
   }
 
@@ -50,7 +57,7 @@ class HwpParser {
     if (v1 === ">" && v2 === "=") { this.pos += 2; return ">="; }
     if (v1 === "<" && v2 === ">") { this.pos += 2; return "<>"; }
     if (v1 === "=" && v2 === ">") { this.pos += 2; return "=>"; }
-    if (["=", "<", ">"].includes(v1)) { this.pos += 1; return v1; }
+    if (["=", "<", ">", "!="].includes(v1)) { this.pos += 1; return v1; }
     return null;
   }
 
@@ -119,7 +126,7 @@ class HwpParser {
     let node = this.parseTerm();
     while (true) {
       const t = this.peek();
-      if (t.type === TokenType.SYMBOL && (t.value === "+" || t.value === "-")) {
+      if (t.type === TokenType.SYMBOL && HWP_ADDITIVE_OPERATORS.includes(t.value)) {
         const next = this.tokens[this.pos + 1];
         if (t.value === "-" && next && next.type === TokenType.SYMBOL && next.value === ">") break;
         this.next();
@@ -172,13 +179,9 @@ class HwpParser {
     const fc = this.tryParseFunctionCall();
     if (fc) return fc;
     const t = this.peek();
-    if (t.type === TokenType.SYMBOL && t.value === "+") {
+    if (t.type === TokenType.SYMBOL && HWP_ADDITIVE_OPERATORS.includes(t.value)) {
       this.next();
-      return { type: "UnaryOp", operator: "+", child: this.parseFactor() };
-    }
-    if (t.type === TokenType.SYMBOL && t.value === "-") {
-      this.next();
-      return { type: "UnaryOp", operator: "-", child: this.parseFactor() };
+      return { type: "UnaryOp", operator: t.value, child: this.parseFactor() };
     }
     if (t.type === TokenType.NUMBER) { this.next(); return this.maybeParseSubSup({ type: "Literal", value: t.value }); }
     if (t.type === TokenType.IDENT) {
@@ -318,31 +321,37 @@ class HwpParser {
   }
 
   parseLeftBracket() {
-    let leftDelim = "";
-    const s = this.peek();
-    if (s.type === TokenType.SYMBOL && isOpenDelimiter(s.value)) {
-      leftDelim = "LEFT" + s.value;
-      this.next();
-    }
+    const leftDelim = this.parseSizedDelimiter();
     const content = this.parseExpression();
     let rightDelim = "";
     if (this.matchKeyword("RIGHT")) {
       this.next();
-      const s2 = this.peek();
-      if (s2.type === TokenType.SYMBOL && isCloseDelimiter(s2.value)) {
-        rightDelim = "RIGHT" + s2.value;
-        this.next();
-      }
+      rightDelim = this.parseSizedDelimiter();
     }
     if (leftDelim === "" && rightDelim === "") return content;
-    return this.maybeParseSubSup(this.flattenBracket({ type: "Bracket", leftDelim, rightDelim, content }));
+    // A missing side becomes the invisible delimiter "." so LEFT/RIGHT always stay paired.
+    return this.maybeParseSubSup(this.flattenBracket({
+      type: "Bracket",
+      leftDelim: `LEFT${leftDelim || "."}`,
+      rightDelim: `RIGHT${rightDelim || "."}`,
+      content
+    }));
+  }
+
+  // Delimiter after LEFT or RIGHT: any bracket symbol, or "." for an invisible delimiter.
+  parseSizedDelimiter() {
+    const t = this.peek();
+    if (t.type !== TokenType.SYMBOL || !(isOpenDelimiter(t.value) || isCloseDelimiter(t.value) || t.value === ".")) return "";
+    this.next();
+    return t.value;
   }
 
   parseBracketDirect() {
     const open = this.next().value;
     const content = this.parseExpression();
     let right = "";
-    if (matchingDelimiter(open) === this.peek().value) {
+    const close = this.peek();
+    if (close.type === TokenType.SYMBOL && closesBracket(open, close.value)) {
       right = this.next().value;
     }
     return this.maybeParseSubSup(this.flattenBracket({ type: "Bracket", leftDelim: open, rightDelim: right, content }));

@@ -4,7 +4,30 @@
 function parseTokenSlice(ParserClass, tokens) {
   const filtered = tokens.filter(t => t.type !== TokenType.EOF);
   if (filtered.length === 0) return { type: "Literal", value: "" };
-  return new ParserClass([...filtered, { type: TokenType.EOF, value: "" }]).parseExpression();
+  return new ParserClass([...filtered, { type: TokenType.EOF, value: "" }]).parse();
+}
+
+// Grouping and alignment marks with no visible meaning when they appear unmatched at the top level.
+function isStructuralStrayToken(token) {
+  if (token.type === TokenType.SYMBOL) return !token.escaped && (token.value === "}" || token.value === "&");
+  return token.type === TokenType.KEYWORD && (token.value === "RIGHT" || token.value === "right");
+}
+
+// Parses the whole token stream. When the expression grammar stops early (e.g. at an unmatched
+// closing bracket), keeps reading the rest instead of silently dropping it.
+function parseCompleteExpression(parser) {
+  let node = null;
+  while (parser.peek().type !== TokenType.EOF) {
+    if (isStructuralStrayToken(parser.peek())) {
+      parser.next();
+      continue;
+    }
+    const start = parser.pos;
+    const part = parser.parseExpression();
+    if (parser.pos === start) parser.next();
+    node = node ? { type: "BinaryOp", operator: "", left: node, right: part } : part;
+  }
+  return node || { type: "Literal", value: "" };
 }
 
 function transposeHwpMatrixColumns(columns) {
