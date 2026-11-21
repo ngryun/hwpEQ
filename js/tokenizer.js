@@ -115,16 +115,44 @@ const HWP_KEYWORDS = new Set([
   "CHOOSE","BINOM","NOT","REL","BUILDREL","BIGG","COL","LCOL","RCOL",
   "GEQ","LEQ",
   "RM","IT","BOLD","RMBOLD",
-  "ROOT","OF"
+  "ROOT","OF",
+  "DINT","TINT","ODINT","OTINT","SMALLINT","SMALLOINT","SMALLSUM",
+  "LSUB","LSUP","SCALE","COLOR",
+  "LADDER","SLADDER","LONGDIV",
+  "OVERLINE","UNDERLINE","BOX","OVERBRACE","UNDERBRACE"
 ]);
 
+// SUP and SUB are the word forms of ^ and _.
+const HWP_SCRIPT_WORDS = { SUP: "^", SUB: "_" };
+
 const LATEX_KEYWORDS = new Set([
-  "int","oint","sum","prod","sqrt","frac","over","atop","choose","binom","lim",
+  "int","oint","iint","iiint","oiint","oiiint",
+  "sum","prod","sqrt","frac","over","atop","choose","binom","lim",
   "acute","grave","dot","ddot","bar","vec","hat","tilde","check",
   "widehat","widetilde","overparen","underline","overline","overrightarrow","overleftrightarrow",
   "times","left","right","begin","end","not","bigg","biggl","biggr","biggm",
-  "overset","underset","text","mathrm","mathit","mathbf","boldsymbol","operatorname"
+  "overset","underset","stackrel","text","mathrm","mathit","mathbf","boldsymbol","operatorname",
+  "boxed","overbrace","underbrace","textcolor","color","pmod"
 ]);
+
+// Commands that only pick a size variant of another command.
+const LATEX_KEYWORD_ALIASES = { dfrac: "frac", tfrac: "frac", cfrac: "frac", dbinom: "binom", tbinom: "binom" };
+
+// Layout hints with no HWP counterpart.
+const LATEX_IGNORED_COMMANDS = new Set([
+  "displaystyle","textstyle","scriptstyle","scriptscriptstyle","limits","nolimits"
+]);
+
+// Arrows that carry text above/below, as the relation they draw. Case matters (\xRightarrow).
+const LATEX_EXTENSIBLE_ARROWS = {
+  xrightarrow: "->", xleftarrow: "<-", xleftrightarrow: "<->",
+  xRightarrow: "=>", xLeftarrow: "<==", xLeftrightarrow: "<=>"
+};
+
+// Backslash followed by punctuation, as the command name it abbreviates ("\!" is dropped).
+const LATEX_CONTROL_SYMBOLS = {
+  ",": "thinspace", ":": "medspace", ";": "thickspace", " ": "space", "|": "Vert", "!": null
+};
 
 const HWP_TIGHT_FUNCTION_PREFIXES_IN_TOKENIZER = [
   "arcsin","arccos","arctan",
@@ -168,8 +196,14 @@ function splitHwpFunctionIdentifier(ident) {
 }
 
 const HWP_SYMBOL_CHARS = "^_{}()#&~'`/,.-+=*\\[]<>|\"";
-// Two-character HWP operators kept as one token: +- (±), -+ (∓), != (≠).
-const HWP_COMPOUND_SYMBOLS = ["+-", "-+", "!="];
+// Multi-character HWP operators, kept as one token only when written without spaces (longest first):
+// <<< (⋘), >>> (⋙), <-> (↔), +- (±), -+ (∓), != and <> (≠), == (≡), << (≪), >> (≫),
+// -> (→), <- (←), <= (≤), >= (≥), => (⇒). So "x<-1" is an arrow but "x < -1" is not.
+const HWP_COMPOUND_SYMBOLS = [
+  "<<<", ">>>", "<->", "+-", "-+", "!=", "==", "<<", ">>", "->", "<-", "<=", ">=", "<>", "=>"
+];
+// Bracket characters the HWP palette inserts after LEFT/RIGHT; each is its own token.
+const HWP_UNICODE_DELIMITERS = "⌈⌉⌊⌋∥‖〈〉⟨⟩";
 
 function tokenizeHwpEqn(input) {
   const tokens = [];
@@ -197,10 +231,10 @@ function tokenizeHwpEqn(input) {
       tokens.push({ type: TokenType.NUMBER, value: num });
       continue;
     }
-    const pair = input.slice(i, i + 2);
-    if (HWP_COMPOUND_SYMBOLS.includes(pair)) {
-      tokens.push({ type: TokenType.SYMBOL, value: pair });
-      i += 2;
+    const compound = HWP_COMPOUND_SYMBOLS.find(symbol => input.startsWith(symbol, i));
+    if (compound) {
+      tokens.push({ type: TokenType.SYMBOL, value: compound });
+      i += compound.length;
       continue;
     }
     if (HWP_SYMBOL_CHARS.includes(ch)) {
@@ -221,12 +255,18 @@ function tokenizeHwpEqn(input) {
       const identifiers = splitParts || [ident];
       for (const part of identifiers) {
         const up = part.toUpperCase();
-        if (HWP_KEYWORDS.has(up)) tokens.push({ type: TokenType.KEYWORD, value: up });
+        if (lookupOwn(HWP_SCRIPT_WORDS, up)) tokens.push({ type: TokenType.SYMBOL, value: HWP_SCRIPT_WORDS[up] });
+        else if (HWP_KEYWORDS.has(up)) tokens.push({ type: TokenType.KEYWORD, value: up });
         else tokens.push({ type: TokenType.IDENT, value: part });
       }
       continue;
     }
-    const { value, end } = readLiteralRun(input, i, HWP_SYMBOL_CHARS);
+    if (HWP_UNICODE_DELIMITERS.includes(ch)) {
+      tokens.push({ type: TokenType.IDENT, value: ch });
+      i++;
+      continue;
+    }
+    const { value, end } = readLiteralRun(input, i, HWP_SYMBOL_CHARS + HWP_UNICODE_DELIMITERS);
     if (value) {
       tokens.push({ type: TokenType.IDENT, value });
       i = end;
@@ -276,8 +316,12 @@ function tokenizeLatex(input) {
         i++;
         let cmd = "";
         while (i < input.length && /[A-Za-z]/.test(input[i])) { cmd += input[i]; i++; }
-        const lower = cmd.toLowerCase();
-        if (cmd.length > 0 && lower === "text" && input[i] === "{") {
+        const lower = lookupOwn(LATEX_KEYWORD_ALIASES, cmd) || cmd.toLowerCase();
+        if (LATEX_IGNORED_COMMANDS.has(cmd)) {
+          continue;
+        } else if (lookupOwn(LATEX_EXTENSIBLE_ARROWS, cmd)) {
+          tokens.push({ type: TokenType.KEYWORD, value: cmd });
+        } else if (cmd.length > 0 && lower === "text" && input[i] === "{") {
           const { value, end } = readLatexTextContent(input, i + 1);
           tokens.push({ type: TokenType.KEYWORD, value: lower });
           tokens.push({ type: TokenType.SYMBOL, value: "{" });
@@ -290,6 +334,10 @@ function tokenizeLatex(input) {
           tokens.push({ type: TokenType.IDENT, value: cmd });
         } else if (i < input.length && "{}".includes(input[i])) {
           tokens.push({ type: TokenType.SYMBOL, value: input[i], escaped: true });
+          i++;
+        } else if (i < input.length && lookupOwn(LATEX_CONTROL_SYMBOLS, input[i]) !== undefined) {
+          const name = LATEX_CONTROL_SYMBOLS[input[i]];
+          if (name) tokens.push({ type: TokenType.IDENT, value: name });
           i++;
         } else {
           tokens.push({ type: TokenType.SYMBOL, value: "\\" });

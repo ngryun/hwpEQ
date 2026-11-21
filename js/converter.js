@@ -17,9 +17,44 @@ function escapeLatexDelimiter(delim) {
 }
 
 function normalizeHwpDelimiter(delim) {
-  if (delim === "\\{" || delim === "{") return "{";
-  if (delim === "\\}" || delim === "}") return "}";
-  return delim;
+  return lookupOwn(LATEX_DELIMITER_TO_HWP, delim) || delim;
+}
+
+// A script on UNION/INTER makes it the big operator.
+function scriptBaseToLatex(base) {
+  const limitForm = base.type === "Literal" ? lookupCaseless(HWP_LIMIT_FORM_TO_LATEX, base.value) : undefined;
+  return limitForm || toLatex(base);
+}
+
+// Short division: every row but the last is "divisor | numbers"; the last row holds the results,
+// which sit under the number columns.
+function ladderToLatex(node) {
+  const width = Math.max(2, ...node.rows.map(row => row.length));
+  const lines = node.rows.map((row, index) => {
+    const cells = row.map(cell => toLatex(cell));
+    if (index > 0 && index === node.rows.length - 1) {
+      while (cells.length > 0 && cells[cells.length - 1] === "") cells.pop();
+      cells.unshift("");
+    }
+    while (cells.length < width) cells.push("");
+    return cells.join(" & ");
+  });
+  return `\\begin{array}{r|${"r".repeat(width - 1)}} ${lines.join(" \\\\ \\hline ")} \\end{array}`;
+}
+
+// Long division: quotient on top, then the dividend under a bar, then pairs of
+// "subtracted value / remainder" with a rule under each subtracted value.
+function longDivisionToLatex(node) {
+  const [dividend, ...steps] = node.rows.map(row => row.map(cell => toLatex(cell)).join(" "));
+  let out = `\\begin{array}{r} ${toLatex(node.quotient)} \\\\ ${toLatex(node.divisor)} \\overline{\\smash{)}\\,${dividend}}`;
+  steps.forEach((step, index) => {
+    out += ` \\\\ ${index % 2 === 1 ? "\\hline " : ""}${step}`;
+  });
+  return `${out} \\end{array}`;
+}
+
+function hwpRowsToString(rows) {
+  return rows.map(row => row.map(cell => toHwpEqn(cell)).join(" & ")).join(" # ");
 }
 
 function formatHwpLeftRight(leftDelim, content, rightDelim) {
@@ -49,6 +84,7 @@ function toLatex(node) {
     case "Text":
       return `\\text{${node.value}}`;
     case "Styled":
+      if (isEmptyNode(node.child)) return "";
       return `${STYLE_TO_LATEX[node.style] || "\\mathrm"}{${toLatex(node.child)}}`;
     case "UnaryOp": {
       const operator = operatorToLatex(node.operator);
@@ -62,8 +98,8 @@ function toLatex(node) {
       return `\\binom{${toLatex(node.total)}}{${toLatex(node.choose)}}`;
     case "Relation": {
       let decorated = operatorToLatex(node.arrow);
-      if (node.below) decorated = `\\underset{${toLatex(node.below)}}{${decorated}}`;
-      if (node.above) decorated = `\\overset{${toLatex(node.above)}}{${decorated}}`;
+      if (!isEmptyNode(node.below)) decorated = `\\underset{${toLatex(node.below)}}{${decorated}}`;
+      if (!isEmptyNode(node.above)) decorated = `\\overset{${toLatex(node.above)}}{${decorated}}`;
       return `${toLatex(node.left)} ${decorated} ${toLatex(node.right)}`;
     }
     case "BinaryOp": {
@@ -82,11 +118,17 @@ function toLatex(node) {
       if (node.index) return `\\sqrt[${toLatex(node.index)}]{${toLatex(node.radicand)}}`;
       return `\\sqrt{${toLatex(node.radicand)}}`;
     case "Superscript":
-      return `${toLatex(node.base)}^{${toLatex(node.exponent)}}`;
+      return `${scriptBaseToLatex(node.base)}^{${toLatex(node.exponent)}}`;
     case "Subscript":
-      return `${toLatex(node.base)}_{${toLatex(node.sub)}}`;
+      return `${scriptBaseToLatex(node.base)}_{${toLatex(node.sub)}}`;
+    case "Prescript": {
+      let scripts = "";
+      if (node.sub) scripts += `_{${toLatex(node.sub)}}`;
+      if (node.sup) scripts += `^{${toLatex(node.sup)}}`;
+      return `{}${scripts}${toLatex(node.base)}`;
+    }
     case "Integral": {
-      let out = node.variant === "int" ? "\\int" : "\\oint";
+      let out = `\\${node.variant}`;
       if (node.lower) out += `_{${toLatex(node.lower)}}`;
       if (node.upper) out += `^{${toLatex(node.upper)}}`;
       if (node.body) out += ` ${toLatex(node.body)}`;
@@ -100,7 +142,21 @@ function toLatex(node) {
       return out;
     }
     case "Decorated":
-      return `${DECORATION_TO_LATEX[node.decoType] || ("\\" + node.decoType)}{${toLatex(node.child)}}`;
+      return `${decorationToLatex(node.decoType, node.child)}{${toLatex(node.child)}}`;
+    case "Brace": {
+      const out = `${node.over ? "\\overbrace" : "\\underbrace"}{${toLatex(node.child)}}`;
+      return isEmptyNode(node.note) ? out : `${out}${node.over ? "^" : "_"}{${toLatex(node.note)}}`;
+    }
+    case "Scaled": {
+      const size = scaleToLatexSize(node.percent);
+      return size && !isEmptyNode(node.child) ? `{${size} ${toLatex(node.child)}}` : toLatex(node.child);
+    }
+    case "Colored":
+      return `\\textcolor{${rgbToLatexColor(node.rgb)}}{${toLatex(node.child)}}`;
+    case "Ladder":
+      return ladderToLatex(node);
+    case "LongDivision":
+      return longDivisionToLatex(node);
     case "BeginEnv": {
       const mapped = envNameToLatex(node);
       const rowStr = renderLatexEnvRows(node.rows);
@@ -145,7 +201,7 @@ function toHwpEqn(node) {
     case "Literal":
       return literalToHwp(node.value);
     case "FunctionName":
-      return node.value;
+      return functionNameToHwp(node.value);
     case "Text":
       return `"${node.value}"`;
     case "Styled":
@@ -157,13 +213,14 @@ function toHwpEqn(node) {
     case "SizedLiteral":
       return `bigg ${toHwpEqn(node.child)}`;
     case "Choose":
-      return `${toHwpEqn(node.total)} choose ${toHwpEqn(node.choose)}`;
+      return `${wrapHwpOperand(node.total)} choose ${wrapHwpOperand(node.choose)}`;
     case "Relation": {
       // \underset alone has no "above" annotation; REL then gets an empty first argument.
-      const keyword = node.below ? "REL" : "BUILDREL";
+      const hasBelow = !isEmptyNode(node.below);
+      const keyword = hasBelow ? "REL" : "BUILDREL";
       const above = node.above ? toHwpEqn(node.above) : "";
-      let out = `${toHwpEqn(node.left)} ${keyword} ${literalToHwp(node.arrow)} {${above}}`;
-      if (node.below) out += ` {${toHwpEqn(node.below)}}`;
+      let out = `${toHwpEqn(node.left)} ${keyword} ${operatorToHwp(node.arrow)} {${above}}`;
+      if (hasBelow) out += ` {${toHwpEqn(node.below)}}`;
       out += ` ${toHwpEqn(node.right)}`;
       return out;
     }
@@ -173,7 +230,7 @@ function toHwpEqn(node) {
       if (node.operator === "apply") return `${left}${right}`;
       if (node.operator === "") return formatImplicitSequence(node, toHwpEqn, "hwp");
       if (node.operator === "times") return `${left} times ${right}`;
-      return `${left} ${literalToHwp(node.operator)} ${right}`;
+      return `${left} ${operatorToHwp(node.operator)} ${right}`;
     }
     case "Fraction":
       return node.withBar
@@ -186,8 +243,14 @@ function toHwpEqn(node) {
       return `${toHwpEqn(node.base)}^{${toHwpEqn(node.exponent)}}`;
     case "Subscript":
       return `${toHwpEqn(node.base)}_{${toHwpEqn(node.sub)}}`;
+    case "Prescript": {
+      let out = toHwpEqn(node.base);
+      if (node.sub) out += ` LSUB {${toHwpEqn(node.sub)}}`;
+      if (node.sup) out += ` LSUP {${toHwpEqn(node.sup)}}`;
+      return out;
+    }
     case "Integral": {
-      let out = node.variant === "int" ? "int" : "oint";
+      let out = lookupOwn(LATEX_INTEGRAL_TO_HWP, node.variant) || "int";
       if (node.lower) out += `_{${toHwpEqn(node.lower)}}`;
       if (node.upper) out += `^{${toHwpEqn(node.upper)}}`;
       if (node.body) out += ` ${toHwpEqn(node.body)}`;
@@ -202,13 +265,24 @@ function toHwpEqn(node) {
     }
     case "Decorated":
       return `${node.decoType}{${toHwpEqn(node.child)}}`;
+    case "Brace": {
+      const out = `${node.over ? "overbrace" : "underbrace"}{${toHwpEqn(node.child)}}`;
+      return isEmptyNode(node.note) ? out : `${out}{${toHwpEqn(node.note)}}`;
+    }
+    case "Scaled":
+      return `scale ${node.percent} ${toHwpEqn(node.child)}`;
+    case "Colored":
+      return `color{${node.rgb.join(",")}}{${toHwpEqn(node.child)}}`;
+    case "Ladder":
+      return `${node.kind}{${hwpRowsToString(node.rows)}}`;
+    case "LongDivision":
+      return `longdiv{${toHwpEqn(node.divisor)}}{${toHwpEqn(node.quotient)}}{${hwpRowsToString(node.rows)}}`;
     case "BeginEnv": {
       const mapped = envNameToHwp(node);
       if (mapped.columnAlignSpec && isHwpMatrixEnvName(mapped.envName)) {
         return formatHwpMatrixColumnMode(mapped.envName, node.rows, mapped.columnAlignSpec);
       }
-      const rowStr = node.rows.map(row => row.map(cell => toHwpEqn(cell)).join(" & ")).join(" # ");
-      return `${mapped.envName}{${rowStr}}`;
+      return `${mapped.envName}{${hwpRowsToString(node.rows)}}`;
     }
     case "Bracket": {
       if (node.content.type === "BeginEnv" && node.content.envName === "array") {

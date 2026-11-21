@@ -34,7 +34,8 @@ class LatexParser {
     if (t.type === TokenType.KEYWORD) {
       const kw = t.value;
       if (RELATION_OPERATORS.has(normalizeLatexOperator(kw))) return false;
-      return !["times","right","end","over","atop","choose","overset","underset"].includes(kw);
+      if (this.startsAnnotatedOperator()) return false;
+      return !["times","right","end","over","atop","choose"].includes(kw);
     }
     if (t.type === TokenType.SYMBOL) {
       if (t.escaped) return true;
@@ -54,7 +55,6 @@ class LatexParser {
     const v3 = t3 && t3.type === TokenType.SYMBOL ? t3.value : "";
     if (v1 === "<" && v2 === "-" && v3 === ">") { this.pos += 3; return "<->"; }
     if (v1 === "-" && v2 === ">") { this.pos += 2; return "->"; }
-    if (v1 === "<" && v2 === "-") { this.pos += 2; return "<-"; }
     if (v1 === "<" && v2 === "=") { this.pos += 2; return "<="; }
     if (v1 === ">" && v2 === "=") { this.pos += 2; return ">="; }
     if (v1 === "<" && v2 === ">") { this.pos += 2; return "<>"; }
@@ -79,8 +79,15 @@ class LatexParser {
     return null;
   }
 
+  // \overset, \underset, \stackrel, or an extensible arrow such as \xrightarrow.
+  startsAnnotatedOperator() {
+    const t = this.peek();
+    if (t.type !== TokenType.KEYWORD) return false;
+    return ["overset", "underset", "stackrel"].includes(t.value) || lookupOwn(LATEX_EXTENSIBLE_ARROWS, t.value) !== undefined;
+  }
+
   tryParseAnnotatedRelationOperator() {
-    if (!this.matchKeyword("overset") && !this.matchKeyword("underset")) return null;
+    if (!this.startsAnnotatedOperator()) return null;
     const start = this.pos;
     const op = this.parseAnnotatedOperator();
     if (op && RELATION_OPERATORS.has(op.arrow)) return op;
@@ -89,8 +96,21 @@ class LatexParser {
   }
 
   parseAnnotatedOperator() {
-    if (this.matchKeyword("overset") || this.matchKeyword("underset")) {
-      const kind = this.next().value;
+    const extensibleArrow = this.peek().type === TokenType.KEYWORD ? lookupOwn(LATEX_EXTENSIBLE_ARROWS, this.peek().value) : undefined;
+    if (extensibleArrow) {
+      // \xrightarrow[below]{above}
+      this.next();
+      let below = null;
+      if (this.matchSymbol("[")) {
+        this.next();
+        if (!this.matchSymbol("]")) below = this.parseExpression();
+        if (this.matchSymbol("]")) this.next();
+      }
+      const above = this.matchSymbol("{") ? this.parseGroupExpression() : null;
+      return { arrow: extensibleArrow, above, below };
+    }
+    if (this.matchKeyword("overset") || this.matchKeyword("underset") || this.matchKeyword("stackrel")) {
+      const kind = this.next().value === "underset" ? "underset" : "overset";
       const annotation = this.parseGroupExpression();
       let base = null;
       if (this.matchSymbol("{")) {
@@ -127,7 +147,11 @@ class LatexParser {
   }
 
   parseRelation() {
-    let node = this.parseAdditive();
+    // An annotated relation may open the expression (\xrightarrow{f} B); its left side is then empty.
+    const leadingRelation = this.startsAnnotatedOperator() && this.tryParseAnnotatedRelationOperator();
+    let node = leadingRelation
+      ? { type: "Relation", left: { type: "Literal", value: "" }, ...leadingRelation, right: this.parseAdditive() }
+      : this.parseAdditive();
     while (true) {
       const annotated = this.tryParseAnnotatedRelationOperator();
       if (annotated) {
@@ -215,7 +239,7 @@ class LatexParser {
     if (t.type === TokenType.NUMBER) { this.next(); return this.maybeParseSubSup({ type: "Literal", value: t.value }); }
     if (t.type === TokenType.IDENT) {
       this.next();
-      return this.maybeParseSubSup(makeNameNode(t.value));
+      return this.maybeParseSubSup(makeLatexNameNode(t.value));
     }
     if (t.type === TokenType.TEXT) {
       this.next();
@@ -240,8 +264,8 @@ class LatexParser {
       if (kw === "frac") {
         return { type: "Fraction", numerator: this.parseGroupExpression(), denominator: this.parseGroupExpression(), withBar: true };
       }
-      if (kw === "int" || kw === "oint") {
-        const node = { type: "Integral", variant: kw === "int" ? "int" : "oint" };
+      if (lookupOwn(LATEX_INTEGRAL_TO_HWP, kw)) {
+        const node = { type: "Integral", variant: kw };
         if (this.matchSymbol("_")) { this.next(); node.lower = this.parseSubOrSupContent(); }
         if (this.matchSymbol("^")) { this.next(); node.upper = this.parseSubOrSupContent(); }
         if (this.canStartFactor()) {
@@ -265,10 +289,33 @@ class LatexParser {
       if (["bigg","biggl","biggr","biggm"].includes(kw)) return { type: "SizedLiteral", size: "bigg", child: this.parseSizedTarget() };
       if (["mathrm","mathit","mathbf","boldsymbol"].includes(kw)) return this.parseStyledCommand(kw);
       if (kw === "operatorname") return this.parseOperatorName();
-      if (["acute","grave","dot","ddot","bar","vec","hat","tilde","check","widehat","widetilde","overparen","underline","overline","overrightarrow","overleftrightarrow"].includes(kw)) {
+      if (["acute","grave","dot","ddot","bar","vec","hat","tilde","check","widehat","widetilde","overparen","underline","overline","overrightarrow","overleftrightarrow","boxed"].includes(kw)) {
         let child = this.parseFactor();
         if (child.type === "Bracket") child = this.removeBracket(child);
         return { type: "Decorated", decoType: LATEX_DECORATION_TO_HWP[kw] || kw, child };
+      }
+      if (kw === "overbrace" || kw === "underbrace") {
+        // The label is the script on the brace's own side: \overbrace{..}^{label}, \underbrace{..}_{label}.
+        const over = kw === "overbrace";
+        const node = { type: "Brace", over, child: this.parseGroupExpression() };
+        if (this.matchSymbol(over ? "^" : "_")) {
+          this.next();
+          node.note = this.parseSubOrSupContent();
+        }
+        return this.maybeParseSubSup(node);
+      }
+      if (kw === "textcolor" || kw === "color") {
+        // \textcolor colours its argument; \color colours the rest of the group.
+        const rgb = this.parseColorSpec();
+        const atGroupEnd = this.peek().type === TokenType.EOF || this.matchSymbol("}");
+        let child = kw === "textcolor" ? this.parseGroupExpression()
+          : atGroupEnd ? { type: "Literal", value: "" } : this.parseExpression();
+        if (child.type === "Bracket") child = this.removeBracket(child);
+        return rgb ? { type: "Colored", rgb, child } : child;
+      }
+      if (kw === "pmod") {
+        const content = { type: "BinaryOp", operator: "", left: { type: "FunctionName", value: "mod" }, right: this.parseGroupExpression() };
+        return { type: "Bracket", leftDelim: "(", rightDelim: ")", content };
       }
       if (kw === "text" || kw === "mathrm") return this.parseTextCommand();
       return this.maybeParseSubSup({ type: "Literal", value: kw });
@@ -295,6 +342,20 @@ class LatexParser {
 
   parseChoosePrefix() {
     return { type: "Choose", total: this.parseGroupExpression(), choose: this.parseGroupExpression() };
+  }
+
+  // Colour argument of \color / \textcolor: "[model]{spec}" or "{name}", as [r, g, b] or null.
+  parseColorSpec() {
+    const readUntil = close => {
+      let raw = "";
+      this.next();
+      while (!this.matchSymbol(close) && this.peek().type !== TokenType.EOF) raw += this.next().value;
+      if (this.matchSymbol(close)) this.next();
+      return raw;
+    };
+    const model = this.matchSymbol("[") ? readUntil("]") : "";
+    const spec = this.matchSymbol("{") ? readUntil("}") : "";
+    return parseLatexColor(model, spec);
   }
 
   parseStyledCommand(command) {
@@ -383,11 +444,11 @@ class LatexParser {
     if (t1.type !== TokenType.IDENT) return undefined;
     if (t2 && t2.type === TokenType.KEYWORD && t2.value === "left") {
       this.next();
-      return this.maybeParseSubSup({ type: "BinaryOp", operator: "apply", left: makeNameNode(t1.value), right: this.parseLeftRightBracket() });
+      return this.maybeParseSubSup({ type: "BinaryOp", operator: "apply", left: makeLatexNameNode(t1.value), right: this.parseLeftRightBracket() });
     }
     if (t2 && t2.type === TokenType.SYMBOL && isOpenDelimiter(t2.value)) {
       this.next();
-      return this.maybeParseSubSup({ type: "BinaryOp", operator: "apply", left: makeNameNode(t1.value), right: this.parseFactor() });
+      return this.maybeParseSubSup({ type: "BinaryOp", operator: "apply", left: makeLatexNameNode(t1.value), right: this.parseFactor() });
     }
     return undefined;
   }
@@ -410,12 +471,18 @@ class LatexParser {
     }));
   }
 
-  // Delimiter after \left or \right: any bracket symbol (\{ \} kept escaped), or "." for an invisible delimiter.
+  // Delimiter after \left or \right: a bracket symbol (\{ \} kept escaped), "." for an invisible
+  // delimiter, or a named one such as \langle or \|.
   parseSizedDelimiter() {
     const t = this.peek();
-    if (t.type !== TokenType.SYMBOL || !(isOpenDelimiter(t.value) || isCloseDelimiter(t.value) || t.value === ".")) return "";
+    if (t.type === TokenType.SYMBOL && (isOpenDelimiter(t.value) || isCloseDelimiter(t.value) || t.value === ".")) {
+      this.next();
+      return t.escaped && "{}".includes(t.value) ? `\\${t.value}` : t.value;
+    }
+    const named = t.type === TokenType.SYMBOL || t.type === TokenType.IDENT ? lookupOwn(LATEX_NAMED_DELIMITERS, t.value) : undefined;
+    if (!named) return "";
     this.next();
-    return t.escaped && "{}".includes(t.value) ? `\\${t.value}` : t.value;
+    return named;
   }
 
   parseEscapedBracket() {
@@ -463,7 +530,16 @@ class LatexParser {
 
   parseGroupExpression() {
     if (!this.matchSymbol("{")) return this.parseFactor();
+    return this.parseBracedExpression();
+  }
+
+  // Parses "{ ... }" from its opening brace; "{}" is an empty literal.
+  parseBracedExpression() {
     this.next();
+    if (this.matchSymbol("}")) {
+      this.next();
+      return { type: "Literal", value: "" };
+    }
     const expr = this.parseExpression();
     if (this.matchSymbol("}")) this.next();
     return expr;
@@ -506,12 +582,7 @@ class LatexParser {
   }
 
   parseSubOrSupContent() {
-    if (this.matchSymbol("{")) {
-      this.next();
-      const expr = this.parseExpression();
-      if (this.matchSymbol("}")) this.next();
-      return expr;
-    }
+    if (this.matchSymbol("{")) return this.parseBracedExpression();
     const t = this.peek();
     if (t.type !== TokenType.EOF) {
       this.next();
